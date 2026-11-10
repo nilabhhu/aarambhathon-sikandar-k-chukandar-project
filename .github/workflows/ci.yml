@@ -1,0 +1,48 @@
+name: Phase 1 Architecture & Contract CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  contract-and-frontend-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run TypeScript typecheck (lint)
+        run: npm run lint
+
+      - name: Run Phase 1 Contract & Privacy Unit Tests
+        run: npx --yes tsx --test src/contracts/analysisContract.test.ts
+
+      - name: Build Frontend Production Bundle
+        run: npm run build
+
+  backend-contract-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install FastAPI & Pytest
+        run: pip install fastapi pydantic pytest httpx
+
+      - name: Run Backend Phase 1 Contract Pytest Suite
+        run: pytest backend/tests/test_phase1_contracts.py

@@ -1,0 +1,53 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+    --surface-canvas: #FFFFFF;
+    --surface-subtle: #F7F9F8;
+    --surface-muted: #EFF3F1;
+    --text-primary: #18181B;
+    --text-secondary: #52525B;
+    --text-muted: #71717A;
+    --border-subtle: #E4E8E6;
+    --accent-sage: #2A6F64;
+    --accent-sage-hover: #21584F;
+    --accent-sage-soft: #EAF2F0;
+  }
+
+  .dark {
+    --surface-canvas: #0F1413;
+    --surface-subtle: #161D1B;
+    --surface-muted: #1E2725;
+    --text-primary: #F4F6F5;
+    --text-secondary: #A1ABA8;
+    --text-muted: #717D79;
+    --border-subtle: #26312E;
+    --accent-sage: #459B8D;
+    --accent-sage-hover: #58B0A2;
+    --accent-sage-soft: #182926;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--surface-canvas);
+    color: var(--text-primary);
+  }
+
+  h1, h2, h3, h4, .font-display {
+    font-family: var(--font-display);
+  }
+
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

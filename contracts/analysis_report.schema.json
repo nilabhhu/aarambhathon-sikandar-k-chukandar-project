@@ -1,0 +1,372 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nilabhhu/aarambhathon-sikandar-k-chukandar-project/contracts/analysis_report.schema.json",
+  "title": "AudioMixAnalysisReport",
+  "description": "Shared canonical data contract between Next.js/React frontend and FastAPI backend for Phase 1 through Phase 6.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_id",
+    "created_at",
+    "is_demonstration_data",
+    "data_source_notice",
+    "input_context",
+    "consent_state",
+    "file_metadata",
+    "capabilities",
+    "measurements",
+    "issues",
+    "recommendations",
+    "extensions"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Semantic version of the shared contract."
+    },
+    "report_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "is_demonstration_data": {
+      "type": "boolean",
+      "description": "MUST be true in Phase 1 mock/fixture responses so demonstration data is never mistaken for live DSP measurements."
+    },
+    "data_source_notice": {
+      "type": "string",
+      "minLength": 10
+    },
+    "input_context": {
+      "type": "object",
+      "required": ["interface_mode", "genre", "mix_stage"],
+      "properties": {
+        "interface_mode": {
+          "type": "string",
+          "enum": ["simple", "advanced"]
+        },
+        "genre": {
+          "type": "string",
+          "enum": [
+            "indie_rock",
+            "electronic_club",
+            "hip_hop_trap",
+            "pop_vocal",
+            "acoustic_folk",
+            "cinematic_orchestral"
+          ]
+        },
+        "mix_stage": {
+          "type": "string",
+          "enum": ["unmastered_mix", "final_master"]
+        },
+        "user_notes": {
+          "type": ["string", "null"]
+        },
+        "plugin_chain_metadata": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["slot_index", "plugin_name", "category", "bypassed"],
+            "properties": {
+              "slot_index": { "type": "integer", "minimum": 1 },
+              "plugin_name": { "type": "string" },
+              "category": {
+                "type": "string",
+                "enum": ["eq", "compression", "saturation", "limiting", "stereo_imaging", "reverb_delay", "other"]
+              },
+              "settings_summary": { "type": "string" },
+              "bypassed": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "consent_state": {
+      "type": "object",
+      "required": [
+        "audio_analysis_consent",
+        "external_ai_transfer_consent",
+        "model_training_opt_in",
+        "consent_timestamp"
+      ],
+      "properties": {
+        "audio_analysis_consent": {
+          "type": "boolean",
+          "description": "Permission 1: Required to inspect and measure uploaded audio."
+        },
+        "external_ai_transfer_consent": {
+          "type": "boolean",
+          "description": "Permission 2: Separate explicit permission required before sending structured measurements or audio context to external AI APIs."
+        },
+        "model_training_opt_in": {
+          "type": "boolean",
+          "default": false,
+          "description": "Permission 3: Separate permission for model training. Default MUST be false; automatic training is prohibited."
+        },
+        "consent_timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "file_metadata": {
+      "type": "object",
+      "required": [
+        "filename",
+        "format",
+        "duration_seconds",
+        "sample_rate_hz",
+        "bit_depth",
+        "channels",
+        "file_size_bytes"
+      ],
+      "properties": {
+        "filename": { "type": "string" },
+        "format": { "type": "string", "enum": ["WAV", "FLAC", "AIFF", "MP3", "OGG"] },
+        "duration_seconds": { "type": "number", "exclusiveMinimum": 0 },
+        "sample_rate_hz": { "type": "integer", "enum": [44100, 48000, 88200, 96000, 192000] },
+        "bit_depth": { "type": ["integer", "null"], "enum": [16, 24, 32, null] },
+        "channels": { "type": "integer", "enum": [1, 2] },
+        "file_size_bytes": { "type": "integer", "minimum": 1 },
+        "sha256_checksum": { "type": "string" }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "dsp_core_measurements",
+        "streaming_normalization_estimates",
+        "reference_track_comparison",
+        "original_stem_multitrack_analysis",
+        "device_translation_preview",
+        "mix_revision_comparison",
+        "ai_educational_interpretation",
+        "ai_stem_separation"
+      ],
+      "properties": {
+        "dsp_core_measurements": { "$ref": "#/$defs/capabilityDescriptor" },
+        "streaming_normalization_estimates": { "$ref": "#/$defs/capabilityDescriptor" },
+        "reference_track_comparison": { "$ref": "#/$defs/capabilityDescriptor" },
+        "original_stem_multitrack_analysis": { "$ref": "#/$defs/capabilityDescriptor" },
+        "device_translation_preview": { "$ref": "#/$defs/capabilityDescriptor" },
+        "mix_revision_comparison": { "$ref": "#/$defs/capabilityDescriptor" },
+        "ai_educational_interpretation": { "$ref": "#/$defs/capabilityDescriptor" },
+        "ai_stem_separation": {
+          "type": "object",
+          "required": ["status", "phase_target", "disclosure"],
+          "properties": {
+            "status": { "type": "string", "const": "PROHIBITED_BY_PRODUCT_RULE" },
+            "phase_target": { "type": "null" },
+            "disclosure": {
+              "type": "string",
+              "const": "Rule 1: AI stem separation, automatic stem splitting, and pseudo-stem generation are permanently forbidden. Only genuine user-uploaded original stems are accepted."
+            }
+          }
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "required": [
+        "integrated_loudness",
+        "short_term_max_loudness",
+        "momentary_max_loudness",
+        "true_peak_max",
+        "sample_clipping_events",
+        "loudness_range_lra",
+        "crest_factor",
+        "phase_correlation_mean",
+        "phase_correlation_min",
+        "stereo_width_index",
+        "sub_bass_energy_20_60hz",
+        "mud_band_energy_200_500hz",
+        "presence_band_energy_2k_5khz",
+        "air_band_energy_10k_20khz"
+      ],
+      "properties": {
+        "integrated_loudness": { "$ref": "#/$defs/measurementValue" },
+        "short_term_max_loudness": { "$ref": "#/$defs/measurementValue" },
+        "momentary_max_loudness": { "$ref": "#/$defs/measurementValue" },
+        "true_peak_max": { "$ref": "#/$defs/measurementValue" },
+        "sample_clipping_events": { "$ref": "#/$defs/measurementValue" },
+        "loudness_range_lra": { "$ref": "#/$defs/measurementValue" },
+        "crest_factor": { "$ref": "#/$defs/measurementValue" },
+        "phase_correlation_mean": { "$ref": "#/$defs/measurementValue" },
+        "phase_correlation_min": { "$ref": "#/$defs/measurementValue" },
+        "stereo_width_index": { "$ref": "#/$defs/measurementValue" },
+        "sub_bass_energy_20_60hz": { "$ref": "#/$defs/measurementValue" },
+        "mud_band_energy_200_500hz": { "$ref": "#/$defs/measurementValue" },
+        "presence_band_energy_2k_5khz": { "$ref": "#/$defs/measurementValue" },
+        "air_band_energy_10k_20khz": { "$ref": "#/$defs/measurementValue" }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "issue_id",
+          "classification",
+          "domain",
+          "severity",
+          "confidence",
+          "title",
+          "timestamps",
+          "evidence",
+          "learning_guide"
+        ],
+        "properties": {
+          "issue_id": { "type": "string" },
+          "classification": {
+            "type": "string",
+            "enum": ["objective_technical", "subjective_stylistic"],
+            "description": "Rule 8: Objective technical warnings MUST be kept strictly separate from subjective stylistic differences."
+          },
+          "domain": {
+            "type": "string",
+            "enum": ["loudness", "true_peak_clipping", "dynamics", "phase_polarity", "stereo_field", "frequency_balance", "stem_masking"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "warning", "notice", "pass"]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          },
+          "title": { "type": "string" },
+          "timestamps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["start_sec", "end_sec", "label"],
+              "properties": {
+                "start_sec": { "type": "number", "minimum": 0 },
+                "end_sec": { "type": "number", "minimum": 0 },
+                "label": { "type": "string" }
+              }
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["metric_key", "measured_value", "unit", "target_range", "method"],
+              "properties": {
+                "metric_key": { "type": "string" },
+                "measured_value": { "type": "number" },
+                "unit": { "type": "string" },
+                "target_range": { "type": "string" },
+                "method": { "type": "string" }
+              }
+            }
+          },
+          "learning_guide": {
+            "type": "object",
+            "required": ["what_was_detected", "why_it_matters", "what_to_try", "how_to_verify"],
+            "properties": {
+              "what_was_detected": { "type": "string" },
+              "why_it_matters": { "type": "string" },
+              "what_to_try": { "type": "string" },
+              "how_to_verify": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "recommendation_id",
+          "priority_rank",
+          "linked_issue_id",
+          "classification",
+          "action_title",
+          "beginner_summary",
+          "advanced_dsp_guidance",
+          "verification_check"
+        ],
+        "properties": {
+          "recommendation_id": { "type": "string" },
+          "priority_rank": { "type": "integer", "minimum": 1 },
+          "linked_issue_id": { "type": "string" },
+          "classification": {
+            "type": "string",
+            "enum": ["objective_technical", "subjective_stylistic"]
+          },
+          "action_title": { "type": "string" },
+          "beginner_summary": { "type": "string" },
+          "advanced_dsp_guidance": { "type": "string" },
+          "verification_check": { "type": "string" }
+        }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Forward-compatible nullable slots for Phases 3-6. Always null in Phase 1.",
+      "required": [
+        "streaming_estimates",
+        "reference_comparison",
+        "stem_multitrack_report",
+        "device_translation_profiles",
+        "revision_comparison",
+        "ai_interpretation"
+      ],
+      "properties": {
+        "streaming_estimates": { "type": ["object", "null"] },
+        "reference_comparison": { "type": ["object", "null"] },
+        "stem_multitrack_report": { "type": ["object", "null"] },
+        "device_translation_profiles": { "type": ["object", "null"] },
+        "revision_comparison": { "type": ["object", "null"] },
+        "ai_interpretation": { "type": ["object", "null"] }
+      }
+    }
+  },
+  "$defs": {
+    "capabilityDescriptor": {
+      "type": "object",
+      "required": ["status", "phase_target", "disclosure"],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": ["DEMO_FIXTURE_ONLY", "NOT_IMPLEMENTED", "IMPLEMENTED", "PROHIBITED_BY_PRODUCT_RULE"]
+        },
+        "phase_target": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 6
+        },
+        "disclosure": { "type": "string" }
+      }
+    },
+    "measurementValue": {
+      "type": "object",
+      "required": ["value", "unit", "standard", "target_min", "target_max", "status", "source"],
+      "properties": {
+        "value": { "type": "number" },
+        "unit": {
+          "type": "string",
+          "enum": ["LUFS", "dBTP", "LU", "dB", "dBFS", "Hz", "correlation", "percent", "count"]
+        },
+        "standard": { "type": "string" },
+        "target_min": { "type": ["number", "null"] },
+        "target_max": { "type": ["number", "null"] },
+        "status": { "type": "string", "enum": ["optimal", "warning", "critical"] },
+        "source": {
+          "type": "string",
+          "enum": ["phase1_demo_fixture", "mathematical_dsp"],
+          "description": "Rule 2: Mathematical DSP is the sole source of truth in production; AI is forbidden from inventing measurement values."
+        }
+      }
+    }
+  }
+}
