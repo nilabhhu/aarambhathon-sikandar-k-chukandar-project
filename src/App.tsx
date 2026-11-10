@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   AnalysisReport,
   ConsentState,
@@ -12,6 +12,7 @@ import {
   MixStage,
 } from './contracts/analysisContract';
 import { generatePhase1DemoReport, GENRE_LABELS, MIX_STAGE_LABELS } from './contracts/demoFixtures';
+import { checkBackendHealth, fetchAnalysisReport } from './services/apiService';
 import { ConsentGatePanel } from './components/ConsentGatePanel';
 import { SimpleMixCheckView } from './components/SimpleMixCheckView';
 import { AdvancedMixCheckView } from './components/AdvancedMixCheckView';
@@ -25,7 +26,6 @@ import {
   BookOpen,
   Server,
   RefreshCw,
-  CheckCircle,
   AlertCircle,
 } from 'lucide-react';
 
@@ -48,7 +48,6 @@ export default function App() {
   const [consent, setConsent] = useState<ConsentState>(() => createDefaultConsentState());
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [checkingBackend, setCheckingBackend] = useState<boolean>(false);
-  const [backendReport, setBackendReport] = useState<AnalysisReport | null>(null);
 
   const [customFileMeta, setCustomFileMeta] = useState<{
     filename?: string;
@@ -56,6 +55,18 @@ export default function App() {
     durationSec?: number;
     sampleRate?: 44100 | 48000 | 88200 | 96000 | 192000;
   }>({});
+
+  const [reportSource, setReportSource] = useState<'backend' | 'offline_fallback'>('offline_fallback');
+  const [activeReport, setActiveReport] = useState<AnalysisReport>(() =>
+    generatePhase1DemoReport({
+      interface_mode: 'simple',
+      genre: 'indie_rock',
+      mix_stage: 'unmastered_mix',
+      consent_state: createDefaultConsentState(),
+    })
+  );
+  const [loadingReport, setLoadingReport] = useState<boolean>(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   // Sync route changes with browser history
   const navigateTo = (newRoute: ActiveRoute) => {
@@ -83,57 +94,77 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Check backend health & capabilities on mount
-  const checkBackendHealth = async () => {
+  // Synchronize report from backend API (via relative URL proxy) with offline fallback
+  useEffect(() => {
+    let isCancelled = false;
+    const loadReport = async () => {
+      setLoadingReport(true);
+      try {
+        const result = await fetchAnalysisReport({
+          interface_mode: route === 'simple' ? 'simple' : 'advanced',
+          genre,
+          mix_stage: mixStage,
+          consent_state: consent,
+          custom_filename: customFileMeta.filename,
+          custom_file_size_bytes: customFileMeta.fileSize,
+          custom_duration_sec: customFileMeta.durationSec,
+          custom_sample_rate: customFileMeta.sampleRate,
+        });
+
+        if (!isCancelled) {
+          setActiveReport(result.report);
+          setReportSource(result.source);
+          setBackendOnline(result.source === 'backend');
+          setReportError(result.errorMessage ?? null);
+        }
+      } catch (err: any) {
+        if (!isCancelled) {
+          setReportSource('offline_fallback');
+          setBackendOnline(false);
+          setReportError(err.message || 'Backend unavailable, switched to offline fallback');
+        }
+      } finally {
+        if (!isCancelled) {
+          setLoadingReport(false);
+        }
+      }
+    };
+
+    loadReport();
+    return () => {
+      isCancelled = true;
+    };
+  }, [route, genre, mixStage, consent, customFileMeta]);
+
+  // Manual or on-demand backend health check
+  const handleCheckBackendHealth = async () => {
     setCheckingBackend(true);
     try {
-      const res = await fetch('http://127.0.0.1:8000/api/v1/health');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.status === 'ok') {
-          setBackendOnline(true);
-          // Also probe demo report endpoint
-          try {
-            const reportRes = await fetch('http://127.0.0.1:8000/api/v1/demo/report');
-            if (reportRes.ok) {
-              const rData = await reportRes.json();
-              if (rData.is_demonstration_data) {
-                setBackendReport(rData);
-              }
-            }
-          } catch {
-            // report fallback to client generator
-          }
-        } else {
-          setBackendOnline(false);
-        }
-      } else {
-        setBackendOnline(false);
-      }
+      const health = await checkBackendHealth();
+      setBackendOnline(health.online);
+
+      // Trigger fresh report fetch on manual ping
+      const result = await fetchAnalysisReport({
+        interface_mode: route === 'simple' ? 'simple' : 'advanced',
+        genre,
+        mix_stage: mixStage,
+        consent_state: consent,
+        custom_filename: customFileMeta.filename,
+        custom_file_size_bytes: customFileMeta.fileSize,
+        custom_duration_sec: customFileMeta.durationSec,
+        custom_sample_rate: customFileMeta.sampleRate,
+      });
+
+      setActiveReport(result.report);
+      setReportSource(result.source);
+      setReportError(result.errorMessage ?? null);
     } catch {
       setBackendOnline(false);
+      setReportSource('offline_fallback');
     } finally {
       setCheckingBackend(false);
     }
   };
-
-  useEffect(() => {
-    checkBackendHealth();
-  }, []);
-
-  const currentReport = useMemo(() => {
-    // If backend provided demo report and input context matches default, we can use it or generate deterministic fixture
-    return generatePhase1DemoReport({
-      interface_mode: route === 'simple' ? 'simple' : 'advanced',
-      genre,
-      mix_stage: mixStage,
-      consent_state: consent,
-      custom_filename: customFileMeta.filename,
-      custom_file_size_bytes: customFileMeta.fileSize,
-      custom_duration_sec: customFileMeta.durationSec,
-      custom_sample_rate: customFileMeta.sampleRate,
-    });
-  }, [route, genre, mixStage, consent, customFileMeta]);
 
   return (
     <div className="min-h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors">
@@ -234,11 +265,21 @@ export default function App() {
               PHASE 1 FOUNDATION
             </span>
             <span aria-hidden="true">·</span>
-            <span>SHARED ENGINE CONTRACT v{currentReport.schema_version}</span>
+            <span>SHARED ENGINE CONTRACT v{activeReport.schema_version}</span>
             <span aria-hidden="true">·</span>
             <span>GENRE: {GENRE_LABELS[genre]}</span>
             <span aria-hidden="true">·</span>
             <span>STAGE: {MIX_STAGE_LABELS[mixStage].title}</span>
+            <span aria-hidden="true">·</span>
+            <span
+              className={
+                reportSource === 'backend'
+                  ? 'text-teal-700 dark:text-teal-300 font-semibold'
+                  : 'text-amber-700 dark:text-amber-400 font-semibold'
+              }
+            >
+              DATA: {reportSource === 'backend' ? 'FASTAPI BACKEND' : 'OFFLINE LOCAL'}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
@@ -255,16 +296,16 @@ export default function App() {
                 {checkingBackend
                   ? 'Checking API...'
                   : backendOnline === true
-                    ? 'Backend API: Online (Port 8000)'
+                    ? 'Backend API: Online (Vite Proxy)'
                     : 'Backend API: Offline (Client Mode)'}
               </span>
               <button
                 type="button"
-                onClick={checkBackendHealth}
+                onClick={handleCheckBackendHealth}
                 title="Re-check backend API status"
-                className="hover:opacity-75 ml-0.5"
+                className="hover:opacity-75 ml-0.5 cursor-pointer"
               >
-                <RefreshCw className={`w-3 h-3 ${checkingBackend ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-3 h-3 ${checkingBackend || loadingReport ? 'animate-spin' : ''}`} />
               </button>
             </div>
 
@@ -409,7 +450,7 @@ export default function App() {
               </div>
             </section>
 
-            {/* Three-Tier Consent & Privacy Gate */}
+            {/* Five-Tier Consent & Privacy Gate */}
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} />
 
             {/* Absolute Product Rules Summary */}
@@ -435,10 +476,10 @@ export default function App() {
                   <strong>Rule 3 (Technical Integrity):</strong> Artistic preferences may guide creative advice but never hide measurable technical issues.
                 </div>
                 <div>
-                  <strong>Rule 4 (Three Separate Permissions):</strong> Audio analysis, external AI transfer, and model training require independent permissions.
+                  <strong>Rule 4 (Granular Consent Dimensions):</strong> Audio analysis, external AI transfer of numbers, external AI inspection of audio, raw audio transfer, and model training require separate explicit permissions.
                 </div>
                 <div>
-                  <strong>Rule 5 (Zero Default Training):</strong> Default is `model_training_opt_in: false`. Automatic training on user audio is prohibited.
+                  <strong>Rule 5 (Zero Default Training):</strong> Default is `model_training_opt_in: false`. Automatic training on user audio is strictly prohibited.
                 </div>
                 <div>
                   <strong>Rule 6 (Honest Device Simulation):</strong> Playback-device translation previews are presented strictly as linear filter approximations, not hardware replicas.
@@ -462,8 +503,15 @@ export default function App() {
 
         {route === 'simple' && (
           <div className="space-y-8">
+            {reportError && (
+              <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 p-3 rounded text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>Notice: {reportError} (Active data rendered using client demonstration fixture)</span>
+              </div>
+            )}
             <SimpleMixCheckView
-              report={currentReport}
+              report={activeReport}
+              reportSource={reportSource}
               genre={genre}
               mixStage={mixStage}
               consent={consent}
@@ -485,8 +533,15 @@ export default function App() {
 
         {route === 'advanced' && (
           <div className="space-y-8">
+            {reportError && (
+              <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 p-3 rounded text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span>Notice: {reportError} (Active data rendered using client demonstration fixture)</span>
+              </div>
+            )}
             <AdvancedMixCheckView
-              report={currentReport}
+              report={activeReport}
+              reportSource={reportSource}
               genre={genre}
               mixStage={mixStage}
               consent={consent}
@@ -497,7 +552,7 @@ export default function App() {
           </div>
         )}
 
-        {route === 'architecture' && <ArchitectureHandoffView report={currentReport} />}
+        {route === 'architecture' && <ArchitectureHandoffView report={activeReport} />}
       </main>
 
       {/* Quiet Footer */}

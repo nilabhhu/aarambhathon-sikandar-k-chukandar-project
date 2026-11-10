@@ -96,6 +96,8 @@ def test_analyze_demo_respects_consent_gate():
         "consent_state": {
             "audio_analysis_consent": False,
             "external_ai_transfer_consent": False,
+            "ai_audio_content_inspection_consent": False,
+            "raw_audio_transfer_consent": False,
             "model_training_opt_in": False,
             "consent_timestamp": "2026-11-10T18:00:00Z",
         },
@@ -166,6 +168,8 @@ def test_phase5_ai_endpoint_enforces_consent_and_501():
         "consent_state": {
             "audio_analysis_consent": True,
             "external_ai_transfer_consent": False,
+            "ai_audio_content_inspection_consent": False,
+            "raw_audio_transfer_consent": False,
             "model_training_opt_in": False,
             "consent_timestamp": "2026-11-10T18:00:00Z",
         },
@@ -180,6 +184,8 @@ def test_phase5_ai_endpoint_enforces_consent_and_501():
         "consent_state": {
             "audio_analysis_consent": True,
             "external_ai_transfer_consent": True,
+            "ai_audio_content_inspection_consent": False,
+            "raw_audio_transfer_consent": False,
             "model_training_opt_in": False,
             "consent_timestamp": "2026-11-10T18:00:00Z",
         },

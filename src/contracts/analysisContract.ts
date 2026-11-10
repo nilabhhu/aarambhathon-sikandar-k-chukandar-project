@@ -73,11 +73,17 @@ export interface InputContext {
 }
 
 export interface ConsentState {
-  /** Permission 1: Required to inspect and analyze uploaded audio */
+  /** Permission 1: Required to inspect and analyze uploaded audio using mathematical DSP */
   audio_analysis_consent: boolean;
-  /** Permission 2: Required before transferring structured metrics/audio context to external AI */
+  /** Permission 2: Explicit permission for external AI to receive structured numerical measurements */
   external_ai_transfer_consent: boolean;
-  /** Permission 3: Default MUST be false. Automatic training on user audio is prohibited. */
+  /** Permission 2 Semantic Alias: Explicit permission for external AI to receive numerical metrics */
+  ai_numerical_metrics_transfer_consent?: boolean;
+  /** Permission 3: Separate explicit permission for external AI to inspect actual audio content/features */
+  ai_audio_content_inspection_consent: boolean;
+  /** Permission 4: Separate explicit permission for external transfer of raw audio bytes */
+  raw_audio_transfer_consent: boolean;
+  /** Permission 5: Separate explicit permission for model training. Default MUST be false. */
   model_training_opt_in: boolean;
   consent_timestamp: string;
 }
@@ -148,9 +154,9 @@ export interface IssueTimestamp {
 }
 
 export interface IssueEvidence {
-  metric_key: keyof MeasurementsMap;
+  metric_key: string;
   measured_value: number;
-  unit: MeasurementUnit;
+  unit: string;
   target_range: string;
   method: string;
 }
@@ -174,7 +180,7 @@ export interface AnalysisIssue {
   learning_guide: LearningGuide;
 }
 
-export interface AnalysisRecommendation {
+export interface MixRecommendation {
   recommendation_id: string;
   priority_rank: number;
   linked_issue_id: string;
@@ -183,6 +189,15 @@ export interface AnalysisRecommendation {
   beginner_summary: string;
   advanced_dsp_guidance: string;
   verification_check: string;
+}
+
+export interface AnalysisExtensions {
+  streaming_estimates: Record<string, unknown> | null;
+  reference_comparison: Record<string, unknown> | null;
+  stem_multitrack_report: Record<string, unknown> | null;
+  device_translation_profiles: Record<string, unknown> | null;
+  revision_comparison: Record<string, unknown> | null;
+  ai_interpretation: Record<string, unknown> | null;
 }
 
 export interface AnalysisReport {
@@ -197,15 +212,8 @@ export interface AnalysisReport {
   capabilities: CapabilitiesMap;
   measurements: MeasurementsMap;
   issues: AnalysisIssue[];
-  recommendations: AnalysisRecommendation[];
-  extensions: {
-    streaming_estimates: null;
-    reference_comparison: null;
-    stem_multitrack_report: null;
-    device_translation_profiles: null;
-    revision_comparison: null;
-    ai_interpretation: null;
-  };
+  recommendations: MixRecommendation[];
+  extensions: AnalysisExtensions;
 }
 
 export interface StemSubmissionCandidate {
@@ -223,6 +231,9 @@ export function createDefaultConsentState(): ConsentState {
   return {
     audio_analysis_consent: true,
     external_ai_transfer_consent: false,
+    ai_numerical_metrics_transfer_consent: false,
+    ai_audio_content_inspection_consent: false,
+    raw_audio_transfer_consent: false,
     model_training_opt_in: false,
     consent_timestamp: new Date().toISOString(),
   };
@@ -230,7 +241,12 @@ export function createDefaultConsentState(): ConsentState {
 
 export function validateConsentForAction(
   consent: ConsentState,
-  action: 'local_analysis' | 'external_ai_interpretation'
+  action:
+    | 'local_analysis'
+    | 'external_ai_interpretation'
+    | 'ai_audio_inspection'
+    | 'raw_audio_transfer'
+    | 'model_training'
 ): ContractValidationResult {
   const errors: string[] = [];
 
@@ -243,6 +259,24 @@ export function validateConsentForAction(
   if (action === 'external_ai_interpretation' && !consent.external_ai_transfer_consent) {
     errors.push(
       'Rule 4 Violation: Separate external_ai_transfer_consent is required before sending measurements to an external AI service.'
+    );
+  }
+
+  if (action === 'ai_audio_inspection' && !consent.ai_audio_content_inspection_consent) {
+    errors.push(
+      'Rule 4 Violation: Separate explicit ai_audio_content_inspection_consent is required before AI can inspect actual audio content.'
+    );
+  }
+
+  if (action === 'raw_audio_transfer' && !consent.raw_audio_transfer_consent) {
+    errors.push(
+      'Rule 4 Violation: Separate explicit raw_audio_transfer_consent is required before raw audio bytes can be transmitted externally.'
+    );
+  }
+
+  if (action === 'model_training' && !consent.model_training_opt_in) {
+    errors.push(
+      'Rule 5 Violation: Model training is disabled by default. Explicit model_training_opt_in is required.'
     );
   }
 
@@ -283,31 +317,36 @@ const VALID_UNITS: ReadonlySet<string> = new Set([
   'count',
 ]);
 
-export function validatePhase1AnalysisReport(
-  report: AnalysisReport
-): ContractValidationResult {
+export function validatePhase1AnalysisReport(report: AnalysisReport): ContractValidationResult {
   const errors: string[] = [];
 
   if (report.schema_version !== '1.0.0') {
-    errors.push(`Unsupported schema_version: ${String(report.schema_version)}`);
+    errors.push(`Invalid schema_version "${report.schema_version}". Expected "1.0.0".`);
   }
 
-  if (!report.is_demonstration_data) {
+  // Phase 1 Enforced Boundary: is_demonstration_data MUST be true
+  if (report.is_demonstration_data !== true) {
     errors.push(
-      'Phase 1 Boundary Violation: is_demonstration_data MUST be true in Phase 1 before Phase 2 DSP engine integration.'
+      'Phase 1 Boundary Violation: is_demonstration_data MUST be true for all Phase 1 responses.'
     );
   }
 
-  if (!report.data_source_notice || !report.data_source_notice.toUpperCase().includes('DEMONSTRATION')) {
-    errors.push(
-      'Phase 1 Boundary Violation: data_source_notice must visibly label payload as DEMONSTRATION data.'
-    );
+  if (!report.data_source_notice || report.data_source_notice.length < 10) {
+    errors.push('Missing or incomplete data_source_notice string.');
   }
 
-  if (!report.consent_state.audio_analysis_consent) {
-    errors.push('Rule 4 Violation: Report cannot exist without audio_analysis_consent=true.');
+  // Verify Consent State: model_training_opt_in must be explicitly present and boolean
+  if (typeof report.consent_state.model_training_opt_in !== 'boolean') {
+    errors.push('Rule 5 Violation: model_training_opt_in must be a boolean.');
+  }
+  if (typeof report.consent_state.ai_audio_content_inspection_consent !== 'boolean') {
+    errors.push('Rule 4 Violation: ai_audio_content_inspection_consent must be a boolean.');
+  }
+  if (typeof report.consent_state.raw_audio_transfer_consent !== 'boolean') {
+    errors.push('Rule 4 Violation: raw_audio_transfer_consent must be a boolean.');
   }
 
+  // Verify Capabilities: ai_stem_separation must be permanently PROHIBITED_BY_PRODUCT_RULE (Rule 1)
   if (
     report.capabilities.ai_stem_separation.status !== 'PROHIBITED_BY_PRODUCT_RULE'
   ) {

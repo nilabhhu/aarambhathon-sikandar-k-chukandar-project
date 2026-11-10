@@ -36,8 +36,11 @@
   "consent_state": {
     "audio_analysis_consent": true,
     "external_ai_transfer_consent": false,
+    "ai_numerical_metrics_transfer_consent": false,
+    "ai_audio_content_inspection_consent": false,
+    "raw_audio_transfer_consent": false,
     "model_training_opt_in": false,
-    "consent_timestamp": "2026-11-10T18:58:17.127Z"
+    "consent_timestamp": "2026-11-10T19:37:07.990Z"
   },
   "file_metadata": {
     "filename": "glass_harbor_mix_v3_premaster_24bit.wav",

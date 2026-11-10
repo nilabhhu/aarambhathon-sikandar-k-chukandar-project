@@ -19,14 +19,14 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install dependencies (reproducible clean install)
+        run: npm ci
 
       - name: Run TypeScript typecheck (lint)
         run: npm run lint
 
-      - name: Run Phase 1 Contract & Privacy Unit Tests
-        run: npx --yes tsx --test src/contracts/analysisContract.test.ts
+      - name: Run Phase 1 Contract, Privacy & Integration Unit Tests
+        run: npm test
 
       - name: Verify JSON Schema contract integrity
         run: |
@@ -42,6 +42,7 @@ jobs:
           }
           console.log("JSON Schema contract verified successfully.");
           '
+          node scripts/validate_schema.js
 
       - name: Build Frontend Production Bundle
         run: npm run build
@@ -62,4 +63,4 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Run Backend Phase 1 Contract Pytest Suite
-        run: pytest backend/tests/test_phase1_contracts.py
+        run: PYTHONPATH=. pytest backend/tests/test_phase1_contracts.py

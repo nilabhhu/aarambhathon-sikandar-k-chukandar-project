@@ -6,8 +6,8 @@ Write-Host "=== MixLearn Studio: Phase 1 Contract & Boundary Verification (Windo
 Write-Host "[1/4] Running TypeScript compiler & contract checks (npm run lint)..." -ForegroundColor Yellow
 npm run lint
 
-Write-Host "[2/4] Running Phase 1 Contract, Consent & Rule Unit Tests (node:test)..." -ForegroundColor Yellow
-npx --yes tsx --test src/contracts/analysisContract.test.ts
+Write-Host "[2/4] Running Phase 1 Contract, Consent & Integration Unit Tests (npm test)..." -ForegroundColor Yellow
+npm test
 
 Write-Host "[3/4] Verifying JSON Schema contract file integrity..." -ForegroundColor Yellow
 node scripts/validate_schema.js

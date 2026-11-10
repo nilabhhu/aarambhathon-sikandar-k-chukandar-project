@@ -19,9 +19,21 @@ The shared canonical contract governing communication between the browser client
   "report_id": "demo-p1-indie_rock-unmastered_mix",
   "created_at": "2026-11-10T18:00:00.000Z",
   "is_demonstration_data": true,
-  "data_source_notice": "DEMONSTRATION DATA — PHASE 1 CONTRACT FIXTURE...",
-  "input_context": { ... },
-  "consent_state": { ... },
+  "data_source_notice": "DEMONSTRATION DATA — PHASE 1 CONTRACT FIXTURE: All numeric values below are deterministic schema fixtures for architectural verification. Real FFmpeg/libebur128, pyloudnorm, and SciPy DSP execution begins in Phase 2.",
+  "input_context": {
+    "interface_mode": "advanced",
+    "genre": "indie_rock",
+    "mix_stage": "unmastered_mix"
+  },
+  "consent_state": {
+    "audio_analysis_consent": true,
+    "external_ai_transfer_consent": false,
+    "ai_numerical_metrics_transfer_consent": false,
+    "ai_audio_content_inspection_consent": false,
+    "raw_audio_transfer_consent": false,
+    "model_training_opt_in": false,
+    "consent_timestamp": "2026-11-10T18:00:00Z"
+  },
   "file_metadata": { ... },
   "capabilities": { ... },
   "measurements": { ... },
@@ -43,6 +55,7 @@ The shared canonical contract governing communication between the browser client
 2. Every measurement in `measurements` must declare `source: "phase1_demo_fixture"` (Phase 1) or `"mathematical_dsp"` (Phase 2+). AI is forbidden as a source.
 3. Every issue in `issues` must declare `classification: "objective_technical"` or `"subjective_stylistic"`.
 4. All six slots in `extensions` MUST be strictly `null` in Phase 1.
+5. All 5 consent properties must be present and boolean; `model_training_opt_in` default is strictly `false`.
 
 ---
 
@@ -69,10 +82,12 @@ The shared canonical contract governing communication between the browser client
   ```json
   {
     "status": "ok",
+    "service": "mixlearn-studio-api",
     "phase": 1,
     "mode": "foundation_contracts_only",
     "is_demonstration_mode": true,
-    "active_contract_version": "1.0.0"
+    "active_contract_version": "1.0.0",
+    "timestamp": "2026-11-10T18:00:00.000000+00:00"
   }
   ```
 
@@ -110,7 +125,7 @@ The shared canonical contract governing communication between the browser client
 - **Purpose:** Returns a complete sample report conforming to the shared schema (`contracts/fixtures/demo_report.json`), labeled with `is_demonstration_data: true`.
 
 #### 6. `POST /api/v1/analyze/demo`
-- **Purpose:** Simulates mix report generation for given genre, stage, and consent state.
+- **Purpose:** Generates a canonical demonstration report reflecting the requested genre, mix stage, and 5-tier consent context.
 - **Request Body:**
   ```json
   {
@@ -120,12 +135,15 @@ The shared canonical contract governing communication between the browser client
     "consent_state": {
       "audio_analysis_consent": true,
       "external_ai_transfer_consent": false,
+      "ai_numerical_metrics_transfer_consent": false,
+      "ai_audio_content_inspection_consent": false,
+      "raw_audio_transfer_consent": false,
       "model_training_opt_in": false,
       "consent_timestamp": "2026-11-10T18:00:00Z"
     }
   }
   ```
-- **Error Behavior:** If `audio_analysis_consent: false`, returns `HTTP 403 Forbidden`.
+- **Error Behavior:** If `audio_analysis_consent: false`, returns `HTTP 403 Forbidden` (`CONSENT_REQUIRED`).
 
 ---
 

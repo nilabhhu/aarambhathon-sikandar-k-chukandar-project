@@ -28,6 +28,7 @@ import {
 
 interface AdvancedMixCheckViewProps {
   report: AnalysisReport;
+  reportSource?: 'backend' | 'offline_fallback';
   genre: GenreId;
   mixStage: MixStage;
   consent: ConsentState;
@@ -56,6 +57,7 @@ const MEASUREMENT_LABELS: Record<keyof AnalysisReport['measurements'], string> =
 
 export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   report,
+  reportSource,
   genre,
   mixStage,
   consent,
@@ -138,13 +140,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
       >
         <div className="text-xs text-zinc-800 dark:text-zinc-200">
           <span className="font-mono font-semibold text-teal-900 dark:text-teal-300">
-            [DEMONSTRATION DATA · PHASE 1 CONTRACT FIXTURE]
+            {reportSource === 'backend'
+              ? '[DEMONSTRATION DATA · PHASE 1 FASTAPI BACKEND FIXTURE]'
+              : '[DEMONSTRATION DATA · PHASE 1 OFFLINE LOCAL FIXTURE]'}
           </span>{' '}
           {report.data_source_notice}
         </div>
-        <span className="text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
-          report_id: {report.report_id}
-        </span>
+        <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
+          <span>provenance: {reportSource === 'backend' ? 'fastapi' : 'offline-local'}</span>
+          <span aria-hidden="true">·</span>
+          <span>report_id: {report.report_id}</span>
+        </div>
       </div>
 
       {/* Header & Workbench Controls with UI State Switcher */}

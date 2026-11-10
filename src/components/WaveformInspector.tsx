@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { AnalysisIssue } from '../contracts/analysisContract';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Eye, Info } from 'lucide-react';
 
 interface WaveformInspectorProps {
   durationSeconds: number;
@@ -34,13 +34,12 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
   onToggleMono,
   isUnmastered,
 }) => {
-  // Deterministic functional envelope bars representing Verse/Chorus/Bridge macrodynamics
+  // Deterministic synthetic envelope bars illustrating Verse/Chorus/Bridge structural envelope for Phase 1 verification
   const bars = useMemo(() => {
     const count = 96;
     const result: { index: number; timeSec: number; peakAmplitude: number; rmsAmplitude: number; clipped: boolean }[] = [];
     for (let i = 0; i < count; i++) {
       const timeSec = (i / count) * durationSeconds;
-      // Chorus 1 (42.5-58s) and Chorus 2 (134-152.5s) have high amplitude
       const inChorus1 = timeSec >= 42.5 && timeSec <= 58.0;
       const inBridge = timeSec >= 108.0 && timeSec <= 124.5;
       const inChorus2 = timeSec >= 134.0 && timeSec <= 152.5;
@@ -50,7 +49,7 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       if (inChorus1 || inChorus2) {
         basePeak = isUnmastered ? 0.94 : 0.99;
       } else if (inBridge) {
-        basePeak = monoMode ? 0.44 : 0.68; // Demonstrates mono phase dip in bridge
+        basePeak = monoMode ? 0.44 : 0.68; // Illustrates visual mono fold-down cancellation dip in bridge
       }
 
       const peakAmplitude = Math.min(1.0, basePeak);
@@ -70,20 +69,22 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
   return (
     <section
-      aria-label="Functional Audio Waveform and Issue Timestamp Inspector"
-      className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-5"
+      aria-label="Synthetic Waveform Profile and Issue Timestamp Selector"
+      className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-5 space-y-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
         <div>
           <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
-            <span>FUNCTIONAL WAVEFORM ENVELOPE</span>
+            <span className="font-semibold text-teal-800 dark:text-teal-400">
+              SYNTHETIC DEMO ENVELOPE (PHASE 1 VISUALIZATION)
+            </span>
             <span aria-hidden="true">·</span>
             <span>DURATION {formatTimecode(durationSeconds)}</span>
             <span aria-hidden="true">·</span>
-            <span>PEAK / RMS OVERLAY</span>
+            <span>SIMULATED PEAK / RMS</span>
           </div>
           <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-            Time-Domain Envelope & Clickable Issue Regions
+            Synthetic Time-Domain Profile & Clickable Issue Regions
           </h3>
         </div>
 
@@ -98,29 +99,45 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
                 : 'bg-zinc-50 text-zinc-800 border-zinc-300 hover:bg-zinc-100 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700'
             }`}
           >
-            {monoMode ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-            <span>{monoMode ? 'Listening Mode: Mono Sum (L+R)' : 'Listening Mode: Stereo (L/R)'}</span>
+            <Eye className="w-3.5 h-3.5" />
+            <span>
+              {monoMode
+                ? 'Visual Simulation: Mono Sum Curve'
+                : 'Visual Simulation: Stereo Curve'}
+            </span>
           </button>
         </div>
       </div>
 
-      {/* Functional SVG Waveform with dBFS Scale and Issue Region Highlights */}
-      <div className="mt-4 relative bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md p-4">
+      {/* Synthetic Visualization Disclosure Notice */}
+      <div className="flex items-start gap-2 p-2.5 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-600 dark:text-zinc-400">
+        <Info className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0 mt-0.5" />
+        <span>
+          <strong>Phase 1 Visual Simulation Only:</strong> This waveform is a mathematically generated synthetic envelope illustrating song structure and region highlighting. No real audio playback engine or live audio decoding is active in Phase 1; genuine audio playback, real stereo auditioning, and real waveform extraction belong to Phase 2.
+        </span>
+      </div>
+
+      {/* SVG Synthetic Waveform Envelope */}
+      <div className="relative bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md p-4">
         <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400 mb-2">
-          <span>0.0 dBFS Ceiling</span>
+          <span>0.0 dBFS Reference Ceiling</span>
           <span>
             {activeTimestamp
-              ? `Selected Region: ${activeTimestamp.label} (${formatTimecode(activeTimestamp.start_sec)} – ${formatTimecode(activeTimestamp.end_sec)})`
-              : 'Click any timestamp marker below to inspect region'}
+              ? `Highlighted Region: ${activeTimestamp.label} (${formatTimecode(activeTimestamp.start_sec)} – ${formatTimecode(activeTimestamp.end_sec)})`
+              : 'Click any timestamp marker below to highlight region'}
           </span>
-          <span>{monoMode ? 'Mono Sum Attenuation Active on Bridge (01:48–02:04)' : 'Stereo Correlation Active'}</span>
+          <span>
+            {monoMode
+              ? 'Simulated Visual Cancellation on Bridge (01:48–02:04)'
+              : 'Simulated Stereo Envelope'}
+          </span>
         </div>
 
         <svg
           viewBox="0 0 960 140"
           className="w-full h-36 overflow-visible"
           role="img"
-          aria-label="Audio waveform showing peak and RMS amplitude across track duration"
+          aria-label="Synthetic audio waveform envelope showing simulated peak and RMS amplitude across track duration"
         >
           {/* Horizontal dBFS reference gridlines */}
           <line x1="0" y1="10" x2="960" y2="10" stroke="currentColor" className="text-red-300 dark:text-red-900/60" strokeDasharray="3 3" strokeWidth="1" />
@@ -131,61 +148,67 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
           {activeTimestamp && (
             <rect
               x={(activeTimestamp.start_sec / durationSeconds) * 960}
-              y="4"
-              width={Math.max(12, ((activeTimestamp.end_sec - activeTimestamp.start_sec) / durationSeconds) * 960)}
-              height="132"
-              rx="3"
-              className="fill-teal-700/15 stroke-teal-700 dark:fill-teal-400/15 dark:stroke-teal-400"
+              y="0"
+              width={Math.max(
+                4,
+                ((activeTimestamp.end_sec - activeTimestamp.start_sec) / durationSeconds) * 960
+              )}
+              height="140"
+              className="fill-teal-700/15 dark:fill-teal-400/20 stroke-teal-700/50 dark:stroke-teal-400/60"
               strokeWidth="1.5"
             />
           )}
 
-          {/* Waveform Bars */}
+          {/* Waveform vertical bars */}
           {bars.map((bar) => {
-            const x = bar.index * 10 + 2;
-            const peakHalfHeight = bar.peakAmplitude * 58;
-            const rmsHalfHeight = bar.rmsAmplitude * 58;
-            const inActiveWindow =
+            const x = (bar.index / bars.length) * 960;
+            const barWidth = 960 / bars.length - 2;
+            const peakHeight = bar.peakAmplitude * 56;
+            const rmsHeight = bar.rmsAmplitude * 56;
+
+            const inActiveRegion =
               activeTimestamp &&
               bar.timeSec >= activeTimestamp.start_sec &&
               bar.timeSec <= activeTimestamp.end_sec;
 
             return (
-              <g key={bar.index}>
+              <g key={bar.index} transform={`translate(${x}, 70)`}>
                 {/* Peak envelope bar */}
                 <rect
-                  x={x}
-                  y={70 - peakHalfHeight}
-                  width="5"
-                  height={peakHalfHeight * 2}
-                  rx="1.5"
-                  className={
-                    bar.clipped
-                      ? 'fill-amber-600 dark:fill-amber-500'
-                      : inActiveWindow
-                        ? 'fill-teal-700 dark:fill-teal-400'
-                        : 'fill-zinc-400 dark:fill-zinc-600'
-                  }
-                />
-                {/* RMS inner energy bar */}
-                <rect
-                  x={x + 1}
-                  y={70 - rmsHalfHeight}
-                  width="3"
-                  height={rmsHalfHeight * 2}
+                  x="0"
+                  y={-peakHeight}
+                  width={barWidth}
+                  height={peakHeight * 2}
                   rx="1"
                   className={
-                    inActiveWindow
-                      ? 'fill-teal-900 dark:fill-teal-200'
-                      : 'fill-zinc-600 dark:fill-zinc-400'
+                    bar.clipped
+                      ? 'fill-red-700/80 dark:fill-red-500/80'
+                      : inActiveRegion
+                        ? 'fill-teal-800 dark:fill-teal-300'
+                        : 'fill-zinc-300 dark:fill-zinc-700'
                   }
+                />
+                {/* RMS interior core bar */}
+                <rect
+                  x="0"
+                  y={-rmsHeight}
+                  width={barWidth}
+                  height={rmsHeight * 2}
+                  rx="1"
+                  className={
+                    inActiveRegion
+                      ? 'fill-teal-950 dark:fill-teal-100'
+                      : 'fill-zinc-500 dark:fill-zinc-500'
+                  }
+                  opacity="0.85"
                 />
               </g>
             );
           })}
         </svg>
 
-        <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400 mt-2">
+        {/* Time ruler markers */}
+        <div className="flex justify-between text-[10px] font-mono tabular-nums text-zinc-400 dark:text-zinc-500 mt-2">
           <span>00:00.0</span>
           <span>00:45.0</span>
           <span>01:30.0</span>
@@ -195,9 +218,9 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       </div>
 
       {/* Clickable Timestamp Strip */}
-      <div className="mt-4">
+      <div>
         <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-          Clickable Issue Timestamp Markers (Select to isolate on waveform):
+          Clickable Issue Timestamp Markers (Select to highlight corresponding region on envelope):
         </div>
         <div className="flex flex-wrap gap-2">
           {issues.flatMap((issue) =>

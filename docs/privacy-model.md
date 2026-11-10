@@ -6,18 +6,20 @@ MixLearn Studio was architected from Day 1 around the principle that **an artist
 
 ### Three Immutable Privacy Invariants:
 1. **No Silent Uploads:** Merely viewing the Phase 1 demonstration transmits zero bytes of audio to any server.
-2. **Three Granular, Independent Permissions (Rule 4):** Audio analysis, external AI coaching, and model training are governed by distinct permissions that cannot be bundled together.
+2. **Granular, Independent Permissions (Rule 4):** Audio analysis, AI numerical metric transfer, AI audio inspection, raw audio external transfer, and model training are governed by distinct permissions that cannot be bundled together.
 3. **No Automatic Model Training (Rule 5):** `model_training_opt_in` defaults to `false`. MixLearn Studio has no automated training pipelines anywhere across Phases 1 through 6.
 
 ---
 
-## 2. The Three-Tier Consent Architecture
+## 2. The Five-Tier Consent Architecture
 
 | Permission Key | Default State | Technical Enforcement Boundary | User Impact When Revoked |
 | :--- | :--- | :--- | :--- |
 | `audio_analysis_consent` | `true` (explicitly toggleable) | Enforced before file decoding, metadata extraction, or DSP execution. | Analysis is blocked immediately. Report findings and waveforms are suppressed. |
-| `external_ai_transfer_consent` | `false` (opt-in required) | Enforced before invoking any external AI API (`/api/v1/interpret/ai`). | Endpoint returns `HTTP 403 Forbidden`. Only local deterministic DSP guidance is shown. |
-| `model_training_opt_in` | `false` (permanent default) | Enforced across all storage and processing scripts. | Audio data and derived metrics are never queued for model fine-tuning. |
+| `external_ai_transfer_consent` / `ai_numerical_metrics_transfer_consent` | `false` (opt-in required) | Enforced before transmitting any structured DSP measurements to external AI (`/api/v1/interpret/ai`). | Endpoint returns `HTTP 403 Forbidden`. Only local deterministic DSP guidance is shown. |
+| `ai_audio_content_inspection_consent` | `false` (opt-in required) | Enforced before allowing external AI services to inspect audio files or spectrograms. | AI is strictly restricted to reviewing sanitized numerical measurements. |
+| `raw_audio_transfer_consent` | `false` (opt-in required) | Enforced before any audio file or waveform data can leave the user's host/ephemeral server boundary. | Raw audio bytes are strictly confined to local ephemeral processing and never transmitted off-box. |
+| `model_training_opt_in` | `false` (permanent default) | Enforced across all storage and processing scripts. | Audio data and derived metrics are never queued or used for model fine-tuning. |
 
 ---
 
@@ -33,14 +35,15 @@ MixLearn Studio provides an honest, verifiable ephemeral lifecycle:
 
 ---
 
-## 4. External AI Data Transfer Boundary (Rule 2 & Rule 4)
+## 4. Forward-Compatible AI Data Transfer Boundary (Rule 2 & Rule 4)
 
 In Phase 5, users may optionally consent to AI educational coaching powered by the Gemini API.
 
-When `external_ai_transfer_consent: true`:
-1. **Raw Audio Is NOT Sent:** The system does not transmit raw audio waveforms to external AI APIs.
+When `external_ai_transfer_consent: true` (or `ai_numerical_metrics_transfer_consent: true`):
+1. **Raw Audio Is NOT Sent:** The system does not transmit raw audio waveforms to external AI APIs unless separate, explicit `raw_audio_transfer_consent` is granted.
 2. **Only Sanitized Structured Numbers Are Transmitted:** The helper function `buildConsentGatedAiPayload()` extracts only:
    - Genre and mix stage context.
    - The 14 objective numerical DSP measurements (with units).
    - Detected issue timecodes and evidence summaries.
 3. **AI Cannot Override Math (Rule 2):** The Gemini API is used solely for educational explanations (e.g., suggesting a 2.5 dB dip at 280 Hz to clear guitar mud). The AI model is strictly prohibited from inventing, altering, or recalculating any numerical DSP measurement.
+4. **Separate Audio Content Inspection Consent:** Even when numerical metric transfer is authorized, audio content inspection by AI remains blocked unless `ai_audio_content_inspection_consent: true`.

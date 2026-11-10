@@ -16,17 +16,22 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
   const localCheck = validateConsentForAction(consent, 'local_analysis');
   const aiCheck = validateConsentForAction(consent, 'external_ai_interpretation');
 
-  const handleToggle = (key: keyof Omit<ConsentState, 'consent_timestamp'>) => {
-    onChangeConsent({
+  const handleToggle = (key: keyof Omit<ConsentState, 'consent_timestamp' | 'ai_numerical_metrics_transfer_consent'>) => {
+    const updatedVal = !consent[key];
+    const updatedState: ConsentState = {
       ...consent,
-      [key]: !consent[key],
+      [key]: updatedVal,
       consent_timestamp: new Date().toISOString(),
-    });
+    };
+    if (key === 'external_ai_transfer_consent') {
+      updatedState.ai_numerical_metrics_transfer_consent = updatedVal;
+    }
+    onChangeConsent(updatedState);
   };
 
   return (
     <section
-      aria-label="Privacy and Three-Tier Consent Configuration"
+      aria-label="Privacy and Five-Tier Consent Configuration"
       className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50/70 dark:bg-zinc-900/80 p-5"
     >
       <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
@@ -38,11 +43,11 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
             <span>RULES 4 & 5 ENFORCED</span>
           </div>
           <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-            Granular Three-Tier Audio Permission Gate
+            Granular Audio & AI Privacy Permission Gate
           </h2>
           {!compact && (
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-3xl">
-              Audio analysis, external AI interpretation, and model training are governed by three independent permissions. Model training is disabled by default and automatic training is permanently prohibited.
+              Audio DSP analysis, AI numerical metric interpretation, AI audio inspection, raw audio transfer, and model training are governed by five distinct permissions. Model training remains disabled by default.
             </p>
           )}
         </div>
@@ -51,8 +56,8 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-        {/* Permission 1: Audio Analysis */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
+        {/* Permission 1: DSP Analysis */}
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-2">
@@ -70,7 +75,7 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
               1. Ephemeral Mathematical DSP Analysis
             </label>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
-              Permits temporary processing of your audio file to compute deterministic LUFS, True Peak, phase, and spectral metrics. Files are purged after analysis.
+              Permits temporary processing of your audio to compute deterministic LUFS, True Peak, phase, and spectral metrics. Files are purged immediately after analysis.
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -87,7 +92,7 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
           </div>
         </div>
 
-        {/* Permission 2: External AI Service Transfer */}
+        {/* Permission 2: External AI Numerical Metrics */}
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-2">
@@ -102,10 +107,10 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
               htmlFor="consent-external-ai"
               className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1.5 cursor-pointer"
             >
-              2. External AI Educational Interpretation
+              2. AI Numerical Metrics Coaching
             </label>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
-              Permits sending structured mathematical DSP measurements and mix context to the Gemini API for plain-language coaching. AI never invents measurements.
+              Permits sending only structured numerical DSP measurements to the Gemini API for plain-language coaching. AI never alters numerical measurements.
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
@@ -117,31 +122,101 @@ export const ConsentGatePanel: React.FC<ConsentGatePanelProps> = ({
               className="h-4 w-4 rounded border-zinc-300 text-teal-700 focus:ring-teal-700 cursor-pointer"
             />
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              {aiCheck.valid ? 'AI Payload Permitted' : 'External Transfer Blocked'}
+              {aiCheck.valid ? 'Metrics Transfer Permitted' : 'Metrics Transfer Blocked'}
             </span>
           </div>
         </div>
 
-        {/* Permission 3: Model Training (Default False, No Automatic Training) */}
+        {/* Permission 3: Separate AI Audio Content Inspection */}
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                PERMISSION 03 · RULE 5 LOCK
+                PERMISSION 03 · SEPARATE
+              </span>
+              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {consent.ai_audio_content_inspection_consent ? 'Opted In' : 'Disabled (Default)'}
+              </span>
+            </div>
+            <label
+              htmlFor="consent-ai-audio-inspect"
+              className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1.5 cursor-pointer"
+            >
+              3. AI Audio Feature Inspection
+            </label>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
+              Explicit permission required before multimodal AI models may inspect acoustic tokens or timbre features. Kept strictly distinct from numerical metrics.
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+            <input
+              id="consent-ai-audio-inspect"
+              type="checkbox"
+              checked={consent.ai_audio_content_inspection_consent}
+              onChange={() => handleToggle('ai_audio_content_inspection_consent')}
+              className="h-4 w-4 rounded border-zinc-300 text-teal-700 focus:ring-teal-700 cursor-pointer"
+            />
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {consent.ai_audio_content_inspection_consent ? 'Feature Inspection Permitted' : 'Feature Inspection Blocked'}
+            </span>
+          </div>
+        </div>
+
+        {/* Permission 4: Raw Audio Transfer */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                PERMISSION 04 · STRICT BOUNDARY
+              </span>
+              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                {consent.raw_audio_transfer_consent ? 'Opted In' : 'Blocked (Default)'}
+              </span>
+            </div>
+            <label
+              htmlFor="consent-raw-transfer"
+              className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1.5 cursor-pointer"
+            >
+              4. External Raw Audio File Transfer
+            </label>
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
+              Separate explicit permission required before uncompressed audio bytes can leave the local execution boundary. Kept disabled by default.
+            </p>
+          </div>
+          <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+            <input
+              id="consent-raw-transfer"
+              type="checkbox"
+              checked={consent.raw_audio_transfer_consent}
+              onChange={() => handleToggle('raw_audio_transfer_consent')}
+              className="h-4 w-4 rounded border-zinc-300 text-teal-700 focus:ring-teal-700 cursor-pointer"
+            />
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {consent.raw_audio_transfer_consent ? 'Raw Audio Transfer Allowed' : 'Raw Audio Stays Ephemeral'}
+            </span>
+          </div>
+        </div>
+
+        {/* Permission 5: Model Training */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
+                PERMISSION 05 · RULE 5 LOCK
               </span>
               <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-700 dark:text-zinc-300">
                 <Lock className="w-3 h-3" />
-                {consent.model_training_opt_in ? 'Explicit Opt-In Flagged' : 'Disabled (Default)'}
+                {consent.model_training_opt_in ? 'Opt-In Flagged' : 'Disabled (Default)'}
               </span>
             </div>
             <label
               htmlFor="consent-model-training"
               className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1.5 cursor-pointer"
             >
-              3. Model Training on User Audio
+              5. Model Training on User Audio
             </label>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
-              Rule 5: Default is strictly OFF. Even if checked, Phase 1–6 implements zero automatic training pipelines on user audio or stems.
+              Rule 5: Default is strictly OFF. Even if checked, Phases 1–6 implement zero automatic training pipelines on user audio or stems.
             </p>
           </div>
           <div className="mt-4 pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between">

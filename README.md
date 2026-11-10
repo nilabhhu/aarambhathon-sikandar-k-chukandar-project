@@ -16,13 +16,13 @@ MixLearn Studio utilizes a **Shared Engine, Dual-Interface Architecture** consum
    - Separates Objective Technical Defects from Optional Stylistic Notes without overwhelming graphs.
 2. **Advanced Mix Check (`/advanced`) — For Intermediate Engineers:**
    - 14 Standardized Mathematical DSP measurements across 5 core domains.
-   - Functional SVG peak/RMS waveform with clickable timestamp region auditioning.
-   - Stereo vs. Mono Sum (`L+R`) toggle.
+   - Synthetic SVG peak/RMS waveform envelope simulation with clickable timestamp region highlighting.
+   - Simulated Stereo vs. Mono Sum curve toggle.
    - Genuine Original Stem Origin Validator (Rule 1: AI stem splitting strictly prohibited).
    - Forward-compatible capability panels for Phases 3–5 with required product disclosures.
 3. **Phase 1 Architecture & Live API Probe (`/architecture`):**
    - Live schema validator.
-   - Interactive live backend endpoint probe testing live communication between browser and FastAPI.
+   - Interactive live backend endpoint probe testing communication between browser and FastAPI.
 
 ---
 
@@ -31,7 +31,7 @@ MixLearn Studio utilizes a **Shared Engine, Dual-Interface Architecture** consum
 1. **Rule 1 (No AI Stem Separation):** Never use AI stem separation or pseudo-stems. Analyze stems only when the user uploads genuine original multitracks.
 2. **Rule 2 (DSP Source of Truth):** Mathematical DSP measurements are the sole source of objective values. AI must never invent measurements.
 3. **Rule 3 (Technical Integrity):** Artistic preferences may guide creative advice but never hide measurable technical issues.
-4. **Rule 4 (Three Separate Permissions):** Audio analysis, external AI transfer, and model training require independent permissions.
+4. **Rule 4 (Granular Consent Dimensions):** Audio analysis, AI numerical metric transfer, AI audio content inspection, raw audio external transfer, and model training require separate explicit permissions.
 5. **Rule 5 (Zero Default Training):** Default is `model_training_opt_in: false`. Automatic training on user audio is prohibited.
 6. **Rule 6 (Honest Device Simulation):** Playback-device translation previews are presented strictly as linear filter approximations, not hardware replicas.
 7. **Rule 7 (Honest Streaming Estimates):** Streaming loudness predictions are presented as estimates based on documented playback modes.
@@ -41,19 +41,20 @@ MixLearn Studio utilizes a **Shared Engine, Dual-Interface Architecture** consum
 
 ---
 
-## Quickstart Guide (Windows 11 / 10)
+## Quickstart Guide (Windows 11 / 10 / Linux / macOS)
 
 ### Prerequisites
 - **Node.js**: v20+ or v22+ (`node -v`)
 - **npm**: v10+ (`npm -v`)
-- **Python**: v3.12+ or v3.14+ (`python --version`)
+- **Python**: v3.12+ (`python --version`)
 
 ---
 
 ### Step 1: Install Frontend Dependencies
 ```powershell
-npm install
+npm ci
 ```
+*(Reproducible clean install matching `package-lock.json`)*
 
 ---
 
@@ -87,6 +88,10 @@ npm run dev
 ```
 Open your browser to: [http://localhost:3000](http://localhost:3000)
 
+**API Connection Routing:**
+- During local development, the Vite dev server automatically proxies requests targeting `/api` and `/health` to `http://127.0.0.1:8000`. Browser client code strictly issues requests to relative URLs (`/api/v1/...`).
+- In production, either configure your reverse proxy (Nginx, Caddy, Cloud Run) to forward `/api/` to the FastAPI backend service, or set `VITE_API_BASE_URL=https://api.yourdomain.com` at build time.
+
 ---
 
 ## Verification & Testing Commands
@@ -104,10 +109,11 @@ Or run individual test suites:
 npm run lint
 ```
 
-### 2. Frontend Contract & Privacy Unit Tests (Node.js)
+### 2. Frontend Contract, Privacy & Integration Unit Tests (Node.js)
 ```powershell
-npx --yes tsx --test src/contracts/analysisContract.test.ts
+npm test
 ```
+*(Executes both `analysisContract.test.ts` and `backendIntegration.test.ts`)*
 
 ### 3. Canonical JSON Schema Verification
 ```powershell
@@ -133,7 +139,7 @@ aarambhathon-sikandar-k-chukandar-project/
 ├── contracts/
 │   ├── analysis_report.schema.json       # Canonical JSON Schema (Draft 2020-12)
 │   └── fixtures/
-│       └── demo_report.json              # Canonical demonstration fixture
+│       └── demo_report.json              # Canonical demonstration fixture (5-tier consent)
 ├── backend/
 │   ├── app/
 │   │   ├── __init__.py
@@ -148,10 +154,13 @@ aarambhathon-sikandar-k-chukandar-project/
 │   ├── contracts/
 │   │   ├── analysisContract.ts           # Shared TypeScript interfaces & pure validators
 │   │   ├── demoFixtures.ts               # Labeled demonstration fixtures
-│   │   └── analysisContract.test.ts      # Deterministic node:test unit test suite
+│   │   ├── analysisContract.test.ts      # Deterministic node:test unit test suite
+│   │   └── backendIntegration.test.ts   # Integration tests for health, demo & error fallback
+│   ├── services/
+│   │   └── apiService.ts                 # Relative URL builder, Vite proxy & backend client
 │   ├── components/
-│   │   ├── ConsentGatePanel.tsx          # 3-tier granular privacy & permission gate
-│   │   ├── WaveformInspector.tsx         # SVG waveform & timestamp auditioning
+│   │   ├── ConsentGatePanel.tsx          # 5-tier granular privacy & permission gate
+│   │   ├── WaveformInspector.tsx         # Synthetic SVG waveform envelope & notices
 │   │   ├── SimpleMixCheckView.tsx        # Beginner 4-step learning interface
 │   │   ├── AdvancedMixCheckView.tsx      # Intermediate DSP table, stem guard & states
 │   │   └── ArchitectureHandoffView.tsx   # Live contract & endpoint probe view
@@ -162,7 +171,7 @@ aarambhathon-sikandar-k-chukandar-project/
 │   ├── architecture.md                   # Full system architecture specification
 │   ├── product-spec.md                   # Complete product specification & learning loop
 │   ├── design-system.md                  # Design tokens, typography & WCAG AA rules
-│   ├── privacy-model.md                  # Ephemeral data handling & consent model
+│   ├── privacy-model.md                  # Ephemeral data handling & 5-tier consent model
 │   ├── api-contracts.md                  # API endpoints & JSON Schema reference
 │   ├── phase-gates.md                    # Six-phase roadmap & strict Phase 2 gate
 │   └── PHASE_1_ARCHITECTURE_HANDOFF.md   # Architectural handoff document
@@ -171,7 +180,7 @@ aarambhathon-sikandar-k-chukandar-project/
 │   ├── validate_contracts.ps1            # Windows PowerShell automated test runner
 │   └── validate_schema.js                # Cross-platform JSON Schema integrity verifier
 ├── .github/workflows/
-│   └── ci.yml                            # GitHub Actions CI (Node 22 + Python 3.12)
+│   └── ci.yml                            # GitHub Actions CI (Node 22 + Python 3.12, npm ci)
 ├── .env.example                          # Safe environment template
 ├── .gitignore                            # Comprehensive ignore rules
 ├── package.json                          # Node dependencies and npm scripts

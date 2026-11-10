@@ -14,6 +14,7 @@ import {
   Server,
   RefreshCw,
 } from 'lucide-react';
+import { buildApiUrl } from '../services/apiService';
 
 interface ArchitectureHandoffViewProps {
   report: AnalysisReport;
@@ -65,7 +66,8 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
     for (const item of endpointsToProbe) {
       const startTime = performance.now();
       try {
-        const res = await fetch(`http://127.0.0.1:8000${item.endpoint}`, {
+        const url = buildApiUrl(item.endpoint);
+        const res = await fetch(url, {
           method: item.method,
           headers: item.body ? { 'Content-Type': 'application/json' } : undefined,
           body: item.body,
@@ -118,7 +120,7 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
               Phase 1 Architecture & Implementation Contract
             </h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-3xl">
-              Single source of truth for repository layout, shared JSON Schema data contracts, FastAPI/Next.js endpoints, 3-tier consent model, and 6-phase dependency boundaries.
+              Single source of truth for repository layout, shared JSON Schema data contracts, FastAPI/Next.js endpoints, 5-tier consent model, and 6-phase dependency boundaries.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs font-mono text-teal-800 dark:text-teal-400 bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800 px-3 py-2 rounded-md">
@@ -152,7 +154,10 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
 │   ├── contracts/
 │   │   ├── analysisContract.ts      # Shared TS contract
 │   │   ├── demoFixtures.ts          # Labeled demo fixtures
-│   │   └── analysisContract.test.ts # node:test unit suite
+│   │   ├── analysisContract.test.ts # node:test unit suite
+│   │   └── backendIntegration.test.ts # API integration tests
+│   ├── services/
+│   │   └── apiService.ts            # Relative API routing client
 │   └── components/                  # Simple & Advanced views
 ├── docs/
 │   ├── architecture.md              # Full system architecture
@@ -259,13 +264,13 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
           <div>
             <div className="flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
               <Server className="w-4 h-4 text-teal-700 dark:text-teal-400" />
-              <span>LIVE INTEGRATION VERIFIER</span>
+              <span>LIVE RELATIVE URL INTEGRATION VERIFIER</span>
             </div>
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Backend API Live Endpoint Probe
+              Backend API Live Endpoint Probe (Vite Proxy / Relative Routing)
             </h2>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-              Verify live communication between browser client and FastAPI backend (http://127.0.0.1:8000).
+              Verify live communication between browser client and FastAPI backend using relative URLs proxied through Vite.
             </p>
           </div>
 
@@ -344,7 +349,7 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
               Contracts, Consent & Layouts
             </h3>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Dual-interface UI foundation, 3-tier privacy gate, JSON Schema v1.0.0, demonstration fixtures, CI pipeline.
+              Dual-interface UI foundation, 5-tier privacy gate, JSON Schema v1.0.0, demonstration fixtures, CI pipeline.
             </p>
           </div>
 

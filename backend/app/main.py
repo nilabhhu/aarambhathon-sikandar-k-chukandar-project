@@ -54,15 +54,27 @@ app.add_middleware(
 class ConsentState(BaseModel):
     audio_analysis_consent: bool = Field(
         ...,
-        description="Permission 1: Local/server DSP analysis (required for audio inspection).",
+        description="Permission 1: Local/server mathematical DSP audio analysis.",
     )
     external_ai_transfer_consent: bool = Field(
         False,
-        description="Permission 2: External AI interpretation (default false; requires separate consent).",
+        description="Permission 2: Explicit permission for external AI to receive structured numerical measurements.",
+    )
+    ai_numerical_metrics_transfer_consent: Optional[bool] = Field(
+        False,
+        description="Permission 2 (Semantic Alias): Explicit permission for external AI to receive numerical measurements.",
+    )
+    ai_audio_content_inspection_consent: bool = Field(
+        False,
+        description="Permission 3: Separate explicit permission for external AI to inspect actual audio content.",
+    )
+    raw_audio_transfer_consent: bool = Field(
+        False,
+        description="Permission 4: Separate explicit permission for external transfer of raw audio bytes.",
     )
     model_training_opt_in: bool = Field(
         False,
-        description="Permission 3: Model training (Default False; automatic training forbidden per Rule 5).",
+        description="Permission 5: Separate permission for model training (Default False; automatic training forbidden per Rule 5).",
     )
     consent_timestamp: str = Field(
         ...,
