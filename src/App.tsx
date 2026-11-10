@@ -5,6 +5,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  AnalysisReport,
   ConsentState,
   createDefaultConsentState,
   GenreId,
@@ -15,22 +16,63 @@ import { ConsentGatePanel } from './components/ConsentGatePanel';
 import { SimpleMixCheckView } from './components/SimpleMixCheckView';
 import { AdvancedMixCheckView } from './components/AdvancedMixCheckView';
 import { ArchitectureHandoffView } from './components/ArchitectureHandoffView';
-import { ArrowRight, Sun, Moon, Shield, Sliders, BookOpen } from 'lucide-react';
+import {
+  ArrowRight,
+  Sun,
+  Moon,
+  Shield,
+  Sliders,
+  BookOpen,
+  Server,
+  RefreshCw,
+  CheckCircle,
+  AlertCircle,
+} from 'lucide-react';
 
 type ActiveRoute = 'home' | 'simple' | 'advanced' | 'architecture';
 
+function getRouteFromLocation(): ActiveRoute {
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase().replace('#', '');
+  if (path === '/simple' || hash === 'simple') return 'simple';
+  if (path === '/advanced' || hash === 'advanced') return 'advanced';
+  if (path === '/architecture' || hash === 'architecture') return 'architecture';
+  return 'home';
+}
+
 export default function App() {
-  const [route, setRoute] = useState<ActiveRoute>('home');
-  const [darkMode, setDarkMode] = useState<boolean>(false); // Default Light Mode per spec
+  const [route, setRoute] = useState<ActiveRoute>(() => getRouteFromLocation());
+  const [darkMode, setDarkMode] = useState<boolean>(false); // Default Light Mode per design tokens
   const [genre, setGenre] = useState<GenreId>('indie_rock');
   const [mixStage, setMixStage] = useState<MixStage>('unmastered_mix');
   const [consent, setConsent] = useState<ConsentState>(() => createDefaultConsentState());
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
+  const [checkingBackend, setCheckingBackend] = useState<boolean>(false);
+  const [backendReport, setBackendReport] = useState<AnalysisReport | null>(null);
+
   const [customFileMeta, setCustomFileMeta] = useState<{
     filename?: string;
     fileSize?: number;
     durationSec?: number;
     sampleRate?: 44100 | 48000 | 88200 | 96000 | 192000;
   }>({});
+
+  // Sync route changes with browser history
+  const navigateTo = (newRoute: ActiveRoute) => {
+    setRoute(newRoute);
+    const targetPath = newRoute === 'home' ? '/' : `/${newRoute}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+    }
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setRoute(getRouteFromLocation());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -41,7 +83,46 @@ export default function App() {
     }
   }, [darkMode]);
 
+  // Check backend health & capabilities on mount
+  const checkBackendHealth = async () => {
+    setCheckingBackend(true);
+    try {
+      const res = await fetch('http://127.0.0.1:8000/api/v1/health');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'ok') {
+          setBackendOnline(true);
+          // Also probe demo report endpoint
+          try {
+            const reportRes = await fetch('http://127.0.0.1:8000/api/v1/demo/report');
+            if (reportRes.ok) {
+              const rData = await reportRes.json();
+              if (rData.is_demonstration_data) {
+                setBackendReport(rData);
+              }
+            }
+          } catch {
+            // report fallback to client generator
+          }
+        } else {
+          setBackendOnline(false);
+        }
+      } else {
+        setBackendOnline(false);
+      }
+    } catch {
+      setBackendOnline(false);
+    } finally {
+      setCheckingBackend(false);
+    }
+  };
+
+  useEffect(() => {
+    checkBackendHealth();
+  }, []);
+
   const currentReport = useMemo(() => {
+    // If backend provided demo report and input context matches default, we can use it or generate deterministic fixture
     return generatePhase1DemoReport({
       interface_mode: route === 'simple' ? 'simple' : 'advanced',
       genre,
@@ -58,74 +139,74 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors">
       {/* Strict 3-Zone Top Bar Contract */}
       <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        {/* Zone 1: Single text element wordmark */}
+        {/* Zone 1: Wordmark */}
         <a
-          href="#home"
+          href="/"
           onClick={(e) => {
             e.preventDefault();
-            setRoute('home');
+            navigateTo('home');
           }}
           className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap shrink-0 font-display"
         >
           MixLearn Studio
         </a>
 
-        {/* Zone 2: 4 concise single-line text navigation links */}
+        {/* Zone 2: Navigation Links */}
         <nav
           aria-label="Primary Navigation"
           className="hidden md:flex items-center gap-6 text-sm font-medium text-zinc-600 dark:text-zinc-400"
         >
           <a
-            href="#home"
+            href="/"
             onClick={(e) => {
               e.preventDefault();
-              setRoute('home');
+              navigateTo('home');
             }}
             className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
               route === 'home'
-                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2'
+                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
                 : ''
             }`}
           >
             Overview
           </a>
           <a
-            href="#simple"
+            href="/simple"
             onClick={(e) => {
               e.preventDefault();
-              setRoute('simple');
+              navigateTo('simple');
             }}
             className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
               route === 'simple'
-                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2'
+                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
                 : ''
             }`}
           >
             Simple Mix Check
           </a>
           <a
-            href="#advanced"
+            href="/advanced"
             onClick={(e) => {
               e.preventDefault();
-              setRoute('advanced');
+              navigateTo('advanced');
             }}
             className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
               route === 'advanced'
-                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2'
+                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
                 : ''
             }`}
           >
             Advanced Mix Check
           </a>
           <a
-            href="#architecture"
+            href="/architecture"
             onClick={(e) => {
               e.preventDefault();
-              setRoute('architecture');
+              navigateTo('architecture');
             }}
             className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
               route === 'architecture'
-                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2'
+                ? 'text-teal-800 dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
                 : ''
             }`}
           >
@@ -133,11 +214,11 @@ export default function App() {
           </a>
         </nav>
 
-        {/* Zone 3: 1 primary action */}
+        {/* Zone 3: Primary Action & Theme Toggle */}
         <div className="flex items-center gap-3 shrink-0">
           <button
             type="button"
-            onClick={() => setRoute(route === 'simple' ? 'advanced' : 'simple')}
+            onClick={() => navigateTo(route === 'simple' ? 'advanced' : 'simple')}
             className="px-4 py-2 text-xs font-medium text-white bg-teal-800 hover:bg-teal-900 dark:bg-teal-700 dark:hover:bg-teal-600 rounded-md transition-colors whitespace-nowrap shrink-0"
           >
             {route === 'simple' ? 'Open Advanced Check' : 'Start Simple Mix Check'}
@@ -161,13 +242,39 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Live Backend Connection Badge */}
+            <div
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono border ${
+                backendOnline === true
+                  ? 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800'
+                  : 'bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-400 dark:border-zinc-700'
+              }`}
+            >
+              <Server className="w-3.5 h-3.5 shrink-0" />
+              <span>
+                {checkingBackend
+                  ? 'Checking API...'
+                  : backendOnline === true
+                    ? 'Backend API: Online (Port 8000)'
+                    : 'Backend API: Offline (Client Mode)'}
+              </span>
+              <button
+                type="button"
+                onClick={checkBackendHealth}
+                title="Re-check backend API status"
+                className="hover:opacity-75 ml-0.5"
+              >
+                <RefreshCw className={`w-3 h-3 ${checkingBackend ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+
             {/* Mobile route switcher */}
             <div className="flex md:hidden items-center gap-1">
               {(['home', 'simple', 'advanced', 'architecture'] as ActiveRoute[]).map((r) => (
                 <button
                   key={r}
                   type="button"
-                  onClick={() => setRoute(r)}
+                  onClick={() => navigateTo(r)}
                   className={`px-2 py-1 rounded text-xs font-medium capitalize ${
                     route === r
                       ? 'bg-teal-800 text-white'
@@ -186,7 +293,7 @@ export default function App() {
               className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap shrink-0"
             >
               {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-              <span>{darkMode ? 'Light Mode (Default)' : 'Dark Mode (Secondary)'}</span>
+              <span>{darkMode ? 'Light (Default)' : 'Dark'}</span>
             </button>
           </div>
         </div>
@@ -211,7 +318,7 @@ export default function App() {
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setRoute('simple')}
+                    onClick={() => navigateTo('simple')}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-teal-800 hover:bg-teal-900 text-white text-sm font-medium transition-colors whitespace-nowrap shrink-0"
                   >
                     <span>Open Simple Mix Check (Beginners)</span>
@@ -219,14 +326,14 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRoute('advanced')}
+                    onClick={() => navigateTo('advanced')}
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-sm font-medium transition-colors whitespace-nowrap shrink-0"
                   >
                     <span>Open Advanced Mix Check (Intermediate)</span>
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRoute('architecture')}
+                    onClick={() => navigateTo('architecture')}
                     className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md text-teal-800 dark:text-teal-400 hover:underline text-sm font-medium whitespace-nowrap shrink-0"
                   >
                     <span>Inspect Phase 1 Architecture Contract</span>
@@ -261,7 +368,7 @@ export default function App() {
                 <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                   <button
                     type="button"
-                    onClick={() => setRoute('simple')}
+                    onClick={() => navigateTo('simple')}
                     className="w-full py-2.5 px-4 rounded-md bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 text-xs font-semibold transition-colors"
                   >
                     Launch Simple Mix Check
@@ -293,7 +400,7 @@ export default function App() {
                 <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
                   <button
                     type="button"
-                    onClick={() => setRoute('advanced')}
+                    onClick={() => navigateTo('advanced')}
                     className="w-full py-2.5 px-4 rounded-md bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors"
                   >
                     Launch Advanced Mix Check
@@ -370,7 +477,7 @@ export default function App() {
                   sampleRate: meta.sampleRate,
                 })
               }
-              onSwitchToAdvanced={() => setRoute('advanced')}
+              onSwitchToAdvanced={() => navigateTo('advanced')}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>

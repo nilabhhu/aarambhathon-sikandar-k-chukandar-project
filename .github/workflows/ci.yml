@@ -2,12 +2,13 @@ name: Phase 1 Architecture & Contract CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, dev]
 
 jobs:
   contract-and-frontend-checks:
+    name: Frontend Typecheck, Tests & Build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -19,7 +20,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run TypeScript typecheck (lint)
         run: npm run lint
@@ -27,10 +28,26 @@ jobs:
       - name: Run Phase 1 Contract & Privacy Unit Tests
         run: npx --yes tsx --test src/contracts/analysisContract.test.ts
 
+      - name: Verify JSON Schema contract integrity
+        run: |
+          node -e '
+          const fs = require("fs");
+          const schema = JSON.parse(fs.readFileSync("contracts/analysis_report.schema.json", "utf8"));
+          if (schema.properties.schema_version.const !== "1.0.0") throw new Error("Invalid schema_version");
+          if (schema.properties.consent_state.properties.model_training_opt_in.default !== false) {
+            throw new Error("Rule 5 violation: model_training_opt_in default must be false");
+          }
+          if (schema.properties.capabilities.properties.ai_stem_separation.properties.status.const !== "PROHIBITED_BY_PRODUCT_RULE") {
+            throw new Error("Rule 1 violation: ai_stem_separation must be PROHIBITED_BY_PRODUCT_RULE");
+          }
+          console.log("JSON Schema contract verified successfully.");
+          '
+
       - name: Build Frontend Production Bundle
         run: npm run build
 
   backend-contract-checks:
+    name: Backend Pytest & Contract Boundaries
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -41,8 +58,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install FastAPI & Pytest
-        run: pip install fastapi pydantic pytest httpx
+      - name: Install backend requirements
+        run: pip install -r backend/requirements.txt
 
       - name: Run Backend Phase 1 Contract Pytest Suite
         run: pytest backend/tests/test_phase1_contracts.py

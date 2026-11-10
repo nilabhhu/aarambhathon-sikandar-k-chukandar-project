@@ -47,7 +47,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       fileSize: file.size,
     });
     setUploadStatusNote(
-      `Loaded file metadata for "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Displaying Phase 1 Demonstration Contract Findings.`
+      `Loaded file metadata for "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Audio was NOT analyzed (Real DSP analysis is scheduled for Phase 2). Displaying Phase 1 Demonstration Contract Findings.`
     );
   };
 
@@ -179,7 +179,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               htmlFor="simple-audio-upload"
               className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-2"
             >
-              3. Inspect Audio File (WAV / FLAC / AIFF / MP3)
+              3. Select Audio Bounce (WAV / FLAC / AIFF / MP3)
             </label>
             <label
               htmlFor="simple-audio-upload"
@@ -198,7 +198,10 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               onChange={handleFileChange}
               className="sr-only"
             />
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 font-mono tabular-nums">
+            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed">
+              <strong>Phase 1 Ingest Notice:</strong> Selecting a file reads local metadata only without performing real DSP. In Phase 2, this will stream to the FFmpeg/libebur128 math pipeline to calculate genuine LUFS and intersample clipping.
+            </div>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-mono tabular-nums">
               {report.file_metadata.format} · {(report.file_metadata.sample_rate_hz / 1000).toFixed(1)} kHz ·{' '}
               {formatTimecode(report.file_metadata.duration_seconds)}
             </div>

@@ -1,8 +1,55 @@
+# Dependencies
 node_modules/
-build/
+.pnp
+.pnp.js
+
+# Production Builds
 dist/
-coverage/
-.DS_Store
-*.log
-.env*
+build/
+out/
+server.js
+
+# Python virtual environment & cache
+.venv/
+venv/
+backend/.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Environment Variables & Keys (NEVER COMMIT)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 !.env.example
+
+# Temporary Processing Files & Uploaded Audio
+uploads/
+temp/
+tmp/
+*.wav
+*.wave
+*.flac
+*.aiff
+*.aif
+*.mp3
+*.ogg
+*.m4a
+*.tmp
+*.log
+
+# Editor & OS Artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# AI Studio artifacts
+.aistudio/
