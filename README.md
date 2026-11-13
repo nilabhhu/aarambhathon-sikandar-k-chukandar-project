@@ -130,6 +130,16 @@ node scripts/validate_schema.js
 npm run build
 ```
 
+### 6. Live Backend & Proxy Endpoint Verification
+```powershell
+npm run test:live
+```
+
+### 7. Automated Headless Browser Acceptance Suite (Edge CDP)
+```powershell
+npm run test:browser
+```
+
 ---
 
 ## Repository Structure
