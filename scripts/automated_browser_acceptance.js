@@ -4,6 +4,9 @@
  */
 
 import { spawn } from 'child_process';
+import os from 'os';
+import path from 'path';
+import fs from 'fs';
 
 const WebSocket = globalThis.WebSocket;
 
@@ -63,6 +66,7 @@ async function runBrowserAcceptanceTests() {
   console.log('=== STARTING AUTOMATED BROWSER ACCEPTANCE TESTS VIA EDGE CDP ===\n');
 
   const edgePath = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
+  const profileDir = path.join(os.tmpdir(), `edge-profile-${Date.now()}`);
   const edgeProcess = spawn(
     edgePath,
     [
@@ -70,7 +74,7 @@ async function runBrowserAcceptanceTests() {
       '--remote-debugging-port=9222',
       '--remote-allow-origins=*',
       '--disable-gpu',
-      `--user-data-dir=${process.cwd()}\\.edge-profile`,
+      `--user-data-dir=${profileDir}`,
       'http://localhost:3000/',
     ],
     { stdio: 'ignore' }
@@ -173,13 +177,12 @@ async function runBrowserAcceptanceTests() {
     const hasArchLink = await page.eval('!!document.querySelector("a[href=\'/architecture\']")');
     assert(hasSimpleLink && hasAdvancedLink && hasArchLink, 'All 3 main navigation routes are discoverable in header');
 
-    const statusBadge = await page.eval('document.querySelector("div[class*=\'inline-flex\'][class*=\'border\'] span")?.textContent || "NOT_FOUND"');
-    console.log(`  ℹ Status Badge text: "${statusBadge}"`);
-    console.log('  ℹ Recorded console errors so far:', browserClient.consoleErrors);
-    const backendOnlineText = await page.eval('document.body.innerText.includes("Backend API: Online")');
-    if (!backendOnlineText) {
-      const fullText = await page.eval('document.body.innerText');
-      console.log('  [DEBUG BODY TEXT SNIPPET]:', fullText.slice(0, 400));
+    // Wait for backend connection to settle via Vite proxy
+    let backendOnlineText = false;
+    for (let i = 0; i < 20; i++) {
+      backendOnlineText = await page.eval('document.body.innerText.includes("Backend API: Online")');
+      if (backendOnlineText) break;
+      await page.wait(500);
     }
     assert(backendOnlineText, 'Backend API status shows "Backend API: Online" via Vite proxy');
 
@@ -398,6 +401,9 @@ async function runBrowserAcceptanceTests() {
     }
     browserClient.close();
     edgeProcess.kill();
+    try {
+      fs.rmSync(profileDir, { recursive: true, force: true });
+    } catch {}
   }
 }
 
