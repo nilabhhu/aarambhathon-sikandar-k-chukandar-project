@@ -16,8 +16,11 @@ try {
   const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 
-  if (schema.properties.schema_version.const !== '1.0.0') {
+  if (schema.properties.schema_version.const !== '2.0.0') {
     throw new Error('Invalid schema_version');
+  }
+  if (fixture.schema_version !== '2.0.0') {
+    throw new Error('Invalid fixture schema_version');
   }
   if (schema.properties.consent_state.properties.model_training_opt_in.default !== false) {
     throw new Error('Rule 5 violation: model_training_opt_in default must be false');

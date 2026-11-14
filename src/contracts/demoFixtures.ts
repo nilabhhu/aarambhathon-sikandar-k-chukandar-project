@@ -35,13 +35,13 @@ export function generatePhase1DemoReport(params: {
   consent_state: ConsentState;
   custom_filename?: string;
   custom_duration_sec?: number;
-  custom_sample_rate?: 44100 | 48000 | 88200 | 96000 | 192000;
+  custom_sample_rate?: number;
   custom_file_size_bytes?: number;
 }): AnalysisReport {
   const isUnmastered = params.mix_stage === 'unmastered_mix';
 
   return {
-    schema_version: '1.0.0',
+    schema_version: '2.0.0',
     report_id: `demo-p1-${params.genre}-${params.mix_stage}`,
     created_at: '2026-11-10T18:00:00.000Z',
     is_demonstration_data: true,
@@ -92,6 +92,8 @@ export function generatePhase1DemoReport(params: {
       channels: 2,
       file_size_bytes: params.custom_file_size_bytes || 57139200,
       sha256_checksum: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      codec: 'pcm_s24le',
+      bit_depth_note: '24-bit fixed-point PCM',
     },
     capabilities: {
       dsp_core_measurements: {
@@ -144,6 +146,17 @@ export function generatePhase1DemoReport(params: {
       },
     },
     measurements: {
+      sample_peak_max: {
+        value: isUnmastered ? -0.05 : 0.0,
+        unit: 'dBFS',
+        standard: 'AES17 / IEC 60268-10',
+        target_min: null,
+        target_max: -0.5,
+        status: 'warning',
+        source: 'phase1_demo_fixture',
+        unavailable_reason: null,
+        algorithm_detail: 'Peak absolute sample value in linear PCM converted to dBFS',
+      },
       integrated_loudness: {
         value: isUnmastered ? -11.8 : -9.4,
         unit: 'LUFS',
@@ -458,5 +471,6 @@ export function generatePhase1DemoReport(params: {
       revision_comparison: null,
       ai_interpretation: null,
     },
+    timeline: null,
   };
 }

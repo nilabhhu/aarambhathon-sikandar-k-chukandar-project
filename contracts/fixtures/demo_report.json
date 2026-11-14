@@ -1,9 +1,9 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "2.0.0",
   "report_id": "demo-p1-indie_rock-unmastered_mix",
   "created_at": "2026-11-10T18:00:00.000Z",
   "is_demonstration_data": true,
-  "data_source_notice": "DEMONSTRATION DATA — PHASE 1 CONTRACT FIXTURE: All numeric values below are deterministic schema fixtures for architectural verification. Real FFmpeg/libebur128, pyloudnorm, and SciPy DSP execution begins in Phase 2.",
+  "data_source_notice": "DEMONSTRATION DATA \u2014 PHASE 1 CONTRACT FIXTURE: All numeric values below are deterministic schema fixtures for architectural verification. Real FFmpeg/libebur128, pyloudnorm, and SciPy DSP execution begins in Phase 2.",
   "input_context": {
     "interface_mode": "advanced",
     "genre": "indie_rock",
@@ -50,7 +50,9 @@
     "bit_depth": 24,
     "channels": 2,
     "file_size_bytes": 57139200,
-    "sha256_checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "sha256_checksum": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "codec": "pcm_s24le",
+    "bit_depth_note": "24-bit fixed-point PCM"
   },
   "capabilities": {
     "dsp_core_measurements": {
@@ -102,7 +104,9 @@
       "target_min": -18,
       "target_max": -14,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard ITU-R BS.1770-4 / EBU R128"
     },
     "short_term_max_loudness": {
       "value": -8.9,
@@ -111,7 +115,9 @@
       "target_min": -16,
       "target_max": -11,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard EBU R128 (3s window)"
     },
     "momentary_max_loudness": {
       "value": -7.4,
@@ -120,7 +126,9 @@
       "target_min": null,
       "target_max": -9.5,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard EBU R128 (400ms window)"
     },
     "true_peak_max": {
       "value": -0.4,
@@ -129,7 +137,9 @@
       "target_min": -6,
       "target_max": -3,
       "status": "critical",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard ITU-R BS.1770-4 (4x Oversampled)"
     },
     "sample_clipping_events": {
       "value": 14,
@@ -138,7 +148,9 @@
       "target_min": 0,
       "target_max": 0,
       "status": "critical",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Consecutive >=3 Full-Scale Samples"
     },
     "loudness_range_lra": {
       "value": 4.2,
@@ -147,7 +159,9 @@
       "target_min": 5.5,
       "target_max": 11,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard EBU Tech 3342"
     },
     "crest_factor": {
       "value": 8.1,
@@ -156,7 +170,9 @@
       "target_min": 9.5,
       "target_max": 14.5,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Peak-to-RMS Ratio"
     },
     "phase_correlation_mean": {
       "value": 0.72,
@@ -165,7 +181,9 @@
       "target_min": 0.35,
       "target_max": 0.95,
       "status": "optimal",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Pearson L/R Time-Domain Correlation (-1 to +1)"
     },
     "phase_correlation_min": {
       "value": -0.18,
@@ -174,7 +192,9 @@
       "target_min": 0,
       "target_max": 1,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard 100ms Windowed Minimum Correlation"
     },
     "stereo_width_index": {
       "value": 68,
@@ -183,7 +203,9 @@
       "target_min": 35,
       "target_max": 75,
       "status": "optimal",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Side-to-Mid RMS Energy Ratio"
     },
     "sub_bass_energy_20_60hz": {
       "value": -15.8,
@@ -192,7 +214,9 @@
       "target_min": -21,
       "target_max": -14.5,
       "status": "optimal",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Welch PSD Band Integration (20-60 Hz)"
     },
     "mud_band_energy_200_500hz": {
       "value": -11.2,
@@ -201,7 +225,9 @@
       "target_min": -18.5,
       "target_max": -14,
       "status": "warning",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Welch PSD Band Integration (200-500 Hz)"
     },
     "presence_band_energy_2k_5khz": {
       "value": -16.9,
@@ -210,7 +236,9 @@
       "target_min": -19,
       "target_max": -15,
       "status": "optimal",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Welch PSD Band Integration (2-5 kHz)"
     },
     "air_band_energy_10k_20khz": {
       "value": -24.5,
@@ -219,7 +247,20 @@
       "target_min": -26,
       "target_max": -19,
       "status": "optimal",
-      "source": "phase1_demo_fixture"
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Computed via standard Welch PSD Band Integration (10-20 kHz)"
+    },
+    "sample_peak_max": {
+      "value": -0.05,
+      "unit": "dBFS",
+      "standard": "AES17 / IEC 60268-10",
+      "target_min": null,
+      "target_max": -0.5,
+      "status": "warning",
+      "source": "phase1_demo_fixture",
+      "unavailable_reason": null,
+      "algorithm_detail": "Peak absolute sample value in linear PCM converted to 20*log10(peak)"
     }
   },
   "issues": [
@@ -262,7 +303,7 @@
         "what_was_detected": "Your unmastered mix peaks at -0.4 dBTP with a limiter active on the master bus, leaving almost no headroom for mastering.",
         "why_it_matters": "Lossy encoders (Spotify OGG, Apple Music AAC, YouTube Opus) reconstruct continuous waveforms that clip audibly when True Peak exceeds -1.0 dBTP.",
         "what_to_try": "Bypass the brickwall limiter on your mix bus and lower the mix bus input trim by 3.5 dB so peaks sit safely between -6.0 and -3.0 dBTP.",
-        "how_to_verify": "Export a 24-bit WAV bounce of Chorus 1 (00:42–00:58), re-upload it, and confirm True Peak reads at or below your target ceiling with zero audible crunch on snare hits."
+        "how_to_verify": "Export a 24-bit WAV bounce of Chorus 1 (00:42\u201300:58), re-upload it, and confirm True Peak reads at or below your target ceiling with zero audible crunch on snare hits."
       }
     },
     {
@@ -291,8 +332,8 @@
       "learning_guide": {
         "what_was_detected": "Between 01:48 and 02:04, the left and right channels pull out of phase (-0.18 correlation) when the widened synth pad and stereo bass chorus enter together.",
         "why_it_matters": "When played back on mono speakers (smart speakers, phone speakers, club PA systems), out-of-phase stereo signals partially cancel out, causing the synth and bass body to hollow out.",
-        "what_to_try": "Use a Mid/Side EQ or stereo imaging plugin to keep frequencies below 140 Hz in mono, and reduce the stereo widener depth on the bridge pad by 20–30%.",
-        "how_to_verify": "Toggle Mono Listening while looping 01:48–02:04. Verify that the bass and pad maintain steady volume and warmth when summed to mono."
+        "what_to_try": "Use a Mid/Side EQ or stereo imaging plugin to keep frequencies below 140 Hz in mono, and reduce the stereo widener depth on the bridge pad by 20\u201330%.",
+        "how_to_verify": "Toggle Mono Listening while looping 01:48\u201302:04. Verify that the bass and pad maintain steady volume and warmth when summed to mono."
       }
     },
     {
@@ -301,7 +342,7 @@
       "domain": "frequency_balance",
       "severity": "notice",
       "confidence": 0.78,
-      "title": "Warm Low-Mid Density in 200–500 Hz Band (-11.2 dBFS)",
+      "title": "Warm Low-Mid Density in 200\u2013500 Hz Band (-11.2 dBFS)",
       "timestamps": [
         {
           "start_sec": 18,
@@ -320,9 +361,9 @@
       ],
       "learning_guide": {
         "what_was_detected": "Energy between 200 Hz and 500 Hz is 2.8 dB higher than typical reference averages for this genre, creating a thick, warm lower-midrange balance.",
-        "why_it_matters": "Rule 3 & 8 Note: This is a stylistic observation, not a technical defect. Depending on your artistic vision, a dense 250–400 Hz region can feel intimate and vintage, or it can slightly mask lead vocal intelligibility.",
+        "why_it_matters": "Rule 3 & 8 Note: This is a stylistic observation, not a technical defect. Depending on your artistic vision, a dense 250\u2013400 Hz region can feel intimate and vintage, or it can slightly mask lead vocal intelligibility.",
         "what_to_try": "If you want extra vocal separation without losing warmth, try a gentle -1.5 dB dynamic EQ dip at 320 Hz on the rhythm guitar/keys bus triggered only when the lead vocal sings.",
-        "how_to_verify": "Level-match before and after in the Verse (00:18–00:42) and listen for whether lead vocal consonants feel clearer while the guitars still sound full."
+        "how_to_verify": "Level-match before and after in the Verse (00:18\u201300:42) and listen for whether lead vocal consonants feel clearer while the guitars still sound full."
       }
     },
     {
@@ -350,7 +391,7 @@
       ],
       "learning_guide": {
         "what_was_detected": "The loudness difference between verses and choruses measures 4.2 LU, indicating a consistently dense dynamic envelope from start to finish.",
-        "why_it_matters": "Consistent loudness keeps energy steady in noisy environments, though a wider 6–8 LU contrast can make the chorus impact feel larger by comparison.",
+        "why_it_matters": "Consistent loudness keeps energy steady in noisy environments, though a wider 6\u20138 LU contrast can make the chorus impact feel larger by comparison.",
         "what_to_try": "If you want the chorus entrance at 00:42.5 to hit harder, try automating the verse drum room and rhythm bus down by 1.0 to 1.5 dB during the final four bars of the pre-chorus.",
         "how_to_verify": "Play from 00:34 to 00:50 with your eyes closed and check whether the downbeat of Chorus 1 feels noticeably wider and taller."
       }
@@ -362,7 +403,7 @@
       "priority_rank": 1,
       "linked_issue_id": "iss-true-peak-exceeded",
       "classification": "objective_technical",
-      "action_title": "Restore 3–6 dB of Pre-Master True-Peak Headroom",
+      "action_title": "Restore 3\u20136 dB of Pre-Master True-Peak Headroom",
       "beginner_summary": "Turn off your master bus limiter and lower your mix level so the loudest chorus peaks sit around -4 dB.",
       "advanced_dsp_guidance": "Bypass Slot 3 (Brickwall True-Peak Limiter) on the stereo bus and apply -3.5 dB input trim ahead of the VCA Mix Bus Compressor so ITU-R BS.1770-4 True Peak stays <= -3.0 dBTP.",
       "verification_check": "Re-upload Chorus 1 bounce and confirm True Peak Max <= -3.0 dBTP (Unmastered) or <= -1.0 dBTP (Master) with 0 sample clipping events."
@@ -374,8 +415,8 @@
       "classification": "objective_technical",
       "action_title": "Stabilize Sub-140 Hz Mono Compatibility in Bridge",
       "beginner_summary": "Keep your bass frequencies centered and slightly reduce the stereo widening effect on the bridge synth pad.",
-      "advanced_dsp_guidance": "Apply a 12 dB/oct Side-channel high-pass filter at 140 Hz on the synth/bass group during 01:48–02:04 so 100ms windowed correlation remains >= +0.15.",
-      "verification_check": "Check 01:48–02:04 in Mono Listening mode and verify no low-end drop occurs when toggling Stereo/Mono."
+      "advanced_dsp_guidance": "Apply a 12 dB/oct Side-channel high-pass filter at 140 Hz on the synth/bass group during 01:48\u201302:04 so 100ms windowed correlation remains >= +0.15.",
+      "verification_check": "Check 01:48\u201302:04 in Mono Listening mode and verify no low-end drop occurs when toggling Stereo/Mono."
     },
     {
       "recommendation_id": "rec-3-low-mid-carve",
@@ -395,5 +436,6 @@
     "device_translation_profiles": null,
     "revision_comparison": null,
     "ai_interpretation": null
-  }
+  },
+  "timeline": null
 }

@@ -124,6 +124,75 @@ async function testEndpoints() {
   } catch (err) {
     console.error(`[FAIL] Consent Denial -> ${err.message}`);
   }
+
+  console.log('\n--- Testing Phase 2 Live Mathematical DSP Upload via Vite Proxy ---');
+  try {
+    // Generate a valid 1-second 44.1kHz 16-bit stereo WAV in-memory
+    const sampleRate = 44100;
+    const numFrames = sampleRate; // 1 second
+    const numChannels = 2;
+    const bytesPerSample = 2;
+    const blockAlign = numChannels * bytesPerSample;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = numFrames * blockAlign;
+    const buffer = Buffer.alloc(44 + dataSize);
+
+    // RIFF header
+    buffer.write('RIFF', 0);
+    buffer.writeUInt32LE(36 + dataSize, 4);
+    buffer.write('WAVE', 8);
+    buffer.write('fmt ', 12);
+    buffer.writeUInt32LE(16, 16); // fmt chunk size
+    buffer.writeUInt16LE(1, 20); // PCM format
+    buffer.writeUInt16LE(numChannels, 22);
+    buffer.writeUInt32LE(sampleRate, 24);
+    buffer.writeUInt32LE(byteRate, 28);
+    buffer.writeUInt16LE(blockAlign, 32);
+    buffer.writeUInt16LE(16, 34); // bits per sample
+    buffer.write('data', 36);
+    buffer.writeUInt32LE(dataSize, 40);
+
+    // Write 440 Hz stereo sine wave
+    for (let i = 0; i < numFrames; i++) {
+      const sample = Math.round(Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 16000);
+      buffer.writeInt16LE(sample, 44 + i * 4);
+      buffer.writeInt16LE(sample, 44 + i * 4 + 2);
+    }
+
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    const formData = new FormData();
+    formData.append('audio_file', blob, 'test_live_sine_440.wav');
+    formData.append('interface_mode', 'advanced');
+    formData.append('genre', 'indie_rock');
+    formData.append('mix_stage', 'unmastered_mix');
+    formData.append(
+      'consent_state_json',
+      JSON.stringify({
+        audio_analysis_consent: true,
+        external_ai_transfer_consent: false,
+        ai_audio_content_inspection_consent: false,
+        raw_audio_transfer_consent: false,
+        model_training_opt_in: false,
+        consent_timestamp: new Date().toISOString(),
+      })
+    );
+
+    const dspRes = await fetch('http://localhost:3000/api/v1/analyze/dsp', {
+      method: 'POST',
+      body: formData,
+    });
+
+    console.log(`[PASS] POST /api/v1/analyze/dsp -> ${dspRes.status} ${dspRes.statusText}`);
+    const dspData = await dspRes.json();
+    console.log(`       Report ID: ${dspData.report_id}`);
+    console.log(`       Is Demo Data: ${dspData.is_demonstration_data} (Expected: false)`);
+    console.log(`       Sample Peak: ${dspData.measurements?.sample_peak_max?.value} dBFS`);
+    console.log(`       True Peak: ${dspData.measurements?.true_peak_max?.value} dBTP`);
+    console.log(`       Integrated Loudness: ${dspData.measurements?.integrated_loudness?.value} LUFS`);
+    console.log(`       Timeline Buckets: ${dspData.timeline?.buckets?.length}`);
+  } catch (err) {
+    console.error(`[FAIL] Live DSP Upload -> ${err.message}`);
+  }
 }
 
 testEndpoints();

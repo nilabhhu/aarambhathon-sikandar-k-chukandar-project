@@ -1,14 +1,16 @@
 """
-Phase 1 FastAPI Backend Foundation for MixLearn Studio.
-Exposes operational health, capabilities, shared schema contract, and explicitly labeled demonstration endpoints.
+Phase 2 FastAPI Backend for MixLearn Studio.
+Exposes operational health, capabilities, shared schema contract (v2.0.0),
+Phase 1 demonstration endpoints, and real mathematical DSP analysis engine (POST /api/v1/analyze/dsp).
+
 Enforces Product Rules:
 - Rule 1: Forbidden AI stem separation / automatic stem splitting.
 - Rule 2: Mathematical DSP as sole measurement source of truth.
 - Rule 4 & 5: Three-tier granular consent and no model training default.
 - Rule 8: Separation of objective technical defects from subjective stylistic notes.
-- Rule 9: Zero unnecessary infrastructure, ephemeral stateless processing.
+- Rule 9: Zero unnecessary infrastructure, ephemeral stateless processing with auto-purge.
 
-All Phase 2-6 endpoints return HTTP 501 Not Implemented with structured phase metadata.
+Phases 3-6 endpoints return HTTP 501 Not Implemented with structured phase metadata.
 """
 
 from datetime import datetime, timezone
@@ -19,10 +21,13 @@ import tempfile
 from typing import Any, Dict, List, Literal, Optional
 import uuid
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from backend.app.dsp.media_probe import stream_upload_and_hash
+from backend.app.dsp.pipeline import analyze_audio_workspace
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 CONTRACTS_DIR = BASE_DIR / "contracts"
@@ -31,9 +36,9 @@ SCHEMA_FILE = CONTRACTS_DIR / "analysis_report.schema.json"
 DEMO_REPORT_FILE = FIXTURES_DIR / "demo_report.json"
 
 app = FastAPI(
-    title="MixLearn Studio API — Phase 1 Foundation",
-    version="1.0.0-phase1",
-    description="Privacy-first audio mixing & mastering educational backend. Phase 1 contract foundation only.",
+    title="MixLearn Studio API — Phase 2 Mathematical DSP",
+    version="2.0.0-phase2",
+    description="Privacy-first audio mixing & mastering educational backend with real mathematical DSP analysis.",
 )
 
 # Safe CORS configuration for local development
@@ -127,7 +132,7 @@ class EphemeralAudioWorkspace:
             shutil.rmtree(self.temp_dir, ignore_errors=True)
 
 
-# --- Phase 1 Implemented Endpoints ---
+# --- Phase 1 & 2 Implemented Health & Schema Endpoints ---
 
 @app.get("/health")
 def get_operational_health():
@@ -135,22 +140,22 @@ def get_operational_health():
     return {
         "status": "ok",
         "service": "mixlearn-studio-api",
-        "phase": 1,
-        "is_demonstration_mode": True,
+        "phase": 2,
+        "is_demonstration_mode": False,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 
 @app.get("/api/v1/health")
 def get_api_health():
-    """Returns detailed Phase 1 API status and mode boundaries."""
+    """Returns detailed Phase 2 API status and mode boundaries."""
     return {
         "status": "ok",
         "service": "mixlearn-studio-api",
-        "phase": 1,
-        "mode": "foundation_contracts_only",
-        "is_demonstration_mode": True,
-        "active_contract_version": "1.0.0",
+        "phase": 2,
+        "mode": "mathematical_dsp_active",
+        "is_demonstration_mode": False,
+        "active_contract_version": "2.0.0",
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -159,11 +164,11 @@ def get_api_health():
 def get_capabilities():
     """
     States which functionalities are actually implemented vs scheduled.
-    Explicitly reports real DSP analysis, stem processing, and AI interpretation as unavailable in Phase 1.
+    Reports real DSP analysis as IMPLEMENTED in Phase 2.
     """
     return {
-        "phase": 1,
-        "service_version": "1.0.0-phase1",
+        "phase": 2,
+        "service_version": "2.0.0-phase2",
         "rules_enforced": {
             "no_ai_stem_separation": True,
             "dsp_is_sole_measurement_source": True,
@@ -173,7 +178,7 @@ def get_capabilities():
             "zero_unnecessary_infrastructure": True,
         },
         "capabilities_status": {
-            "dsp_core_measurements": "DEMO_FIXTURE_ONLY",
+            "dsp_core_measurements": "IMPLEMENTED",
             "streaming_normalization_estimates": "NOT_IMPLEMENTED_PHASE_3",
             "reference_track_comparison": "NOT_IMPLEMENTED_PHASE_3",
             "original_stem_multitrack_analysis": "NOT_IMPLEMENTED_PHASE_4",
@@ -183,13 +188,13 @@ def get_capabilities():
             "ai_educational_interpretation": "NOT_IMPLEMENTED_PHASE_5",
         },
         "endpoints": {
-            "/health": "IMPLEMENTED_PHASE_1",
-            "/api/v1/health": "IMPLEMENTED_PHASE_1",
-            "/api/v1/capabilities": "IMPLEMENTED_PHASE_1",
-            "/api/v1/contracts/schema": "IMPLEMENTED_PHASE_1",
+            "/health": "IMPLEMENTED_PHASE_2",
+            "/api/v1/health": "IMPLEMENTED_PHASE_2",
+            "/api/v1/capabilities": "IMPLEMENTED_PHASE_2",
+            "/api/v1/contracts/schema": "IMPLEMENTED_PHASE_2",
             "/api/v1/demo/report": "IMPLEMENTED_PHASE_1_DEMO_FIXTURE",
             "/api/v1/analyze/demo": "IMPLEMENTED_PHASE_1_DEMO_FIXTURE",
-            "/api/v1/analyze/dsp": "NOT_IMPLEMENTED_PHASE_2",
+            "/api/v1/analyze/dsp": "IMPLEMENTED_PHASE_2",
             "/api/v1/analyze/reference": "NOT_IMPLEMENTED_PHASE_3",
             "/api/v1/analyze/streaming": "NOT_IMPLEMENTED_PHASE_3",
             "/api/v1/analyze/stems": "NOT_IMPLEMENTED_PHASE_4",
@@ -226,7 +231,7 @@ def _load_or_create_demo_fixture() -> Dict[str, Any]:
 @app.get("/api/v1/demo/report")
 def get_demo_report():
     """
-    Returns a sample report conforming to the shared analysis schema.
+    Returns a sample report conforming to the shared analysis schema v2.0.0.
     Must clearly identify the result as demonstration data (is_demonstration_data: true).
     """
     report = _load_or_create_demo_fixture()
@@ -263,20 +268,81 @@ def post_analyze_demo(request: DemoAnalysisRequest):
     return JSONResponse(content=report)
 
 
-# --- Phase 2-6 Guarded Endpoints (HTTP 501 / 422 / 403) ---
+# --- Phase 2 Implemented Mathematical DSP Endpoint ---
 
 @app.post("/api/v1/analyze/dsp")
-def post_analyze_dsp():
-    """Phase 2 boundary: Core mathematical DSP analysis."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={
-            "error_code": "PHASE_BOUNDARY_NOT_IMPLEMENTED",
-            "target_phase": 2,
-            "message": "Real mathematical DSP analysis (FFmpeg/libebur128, pyloudnorm, SciPy) is scheduled for Phase 2.",
-        },
-    )
+def post_analyze_dsp(
+    audio_file: UploadFile = File(...),
+    interface_mode: str = Form("advanced"),
+    genre: str = Form("indie_rock"),
+    mix_stage: str = Form("unmastered_mix"),
+    consent_state_json: str = Form(...),
+    user_notes: Optional[str] = Form(None),
+    plugin_chain_metadata_json: Optional[str] = Form(None),
+):
+    """
+    Phase 2 Core Mathematical DSP Analysis Endpoint.
+    Streams upload with 100 MB hard limit, inspects media, decodes to Float32 PCM,
+    executes real DSP (FFmpeg ebur128, waveform, Welch PSD, diagnostics),
+    validates against schema v2.0.0, and returns genuine AudioMixAnalysisReport.
+    """
+    # 1. Parse and validate consent state
+    try:
+        consent_dict = json.loads(consent_state_json)
+        consent_obj = ConsentState(**consent_dict)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "INVALID_CONSENT_PAYLOAD",
+                "message": f"Malformed consent state JSON: {str(e)}",
+            },
+        )
 
+    # Enforce Rule 4: Explicit Permission 1 (audio_analysis_consent) required
+    if not consent_obj.audio_analysis_consent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "CONSENT_REQUIRED",
+                "message": "Permission 1 (audio_analysis_consent) is required before examining or measuring audio with mathematical DSP.",
+            },
+        )
+
+    # 2. Parse optional plugin chain metadata
+    plugin_chain_meta = None
+    if plugin_chain_metadata_json and plugin_chain_metadata_json.strip():
+        try:
+            plugin_chain_meta = json.loads(plugin_chain_metadata_json)
+        except Exception:
+            plugin_chain_meta = None
+
+    # 3. Execute DSP inside ephemeral workspace (Rule 9 auto-purge)
+    with EphemeralAudioWorkspace(prefix="mixlearn-dsp-") as workspace:
+        filename = audio_file.filename or "uploaded_audio.wav"
+        dest_raw_path = workspace / filename
+
+        # Stream chunked upload with hard 100 MB cap and incremental SHA-256
+        file_size, sha256_hash = stream_upload_and_hash(audio_file, dest_raw_path)
+
+        # Run mathematical DSP pipeline
+        report = analyze_audio_workspace(
+            raw_audio_path=dest_raw_path,
+            original_filename=filename,
+            file_size_bytes=file_size,
+            sha256_hash=sha256_hash,
+            interface_mode=interface_mode,
+            genre=genre,
+            mix_stage=mix_stage,
+            consent_state=consent_obj.model_dump(),
+            user_notes=user_notes,
+            plugin_chain_metadata=plugin_chain_meta,
+        )
+
+    return JSONResponse(content=report)
+
+
+# --- Phase 3-6 Guarded Endpoints (HTTP 501 / 422 / 403) ---
 
 @app.post("/api/v1/analyze/reference")
 def post_analyze_reference():

@@ -1,5 +1,5 @@
 /**
- * Client API Service for MixLearn Studio (Phase 1)
+ * Client API Service for MixLearn Studio (Phase 1 & Phase 2)
  *
  * Uses relative URLs to route through the Vite proxy in development
  * and reverse proxies in production. Configurable via VITE_API_BASE_URL.
@@ -11,6 +11,7 @@ import {
   GenreId,
   InterfaceMode,
   MixStage,
+  validateAnalysisReport,
   validatePhase1AnalysisReport,
 } from '../contracts/analysisContract';
 import { generatePhase1DemoReport } from '../contracts/demoFixtures';
@@ -65,7 +66,7 @@ export async function checkBackendHealth(
 
     const data: BackendHealthResponse = await res.json();
     return {
-      online: data.status === 'ok' && data.phase === 1,
+      online: data.status === 'ok' && data.phase >= 1,
       data,
     };
   } catch (err: any) {
@@ -77,7 +78,137 @@ export async function checkBackendHealth(
 }
 
 /**
- * Fetches an analysis report from the backend with deterministic local offline fallback.
+ * Executes genuine Phase 2 mathematical DSP analysis via POST /api/v1/analyze/dsp.
+ * Streams multipart audio to backend.
+ */
+export async function analyzeAudioWithDsp(
+  formData: FormData,
+  customFetch: typeof fetch = fetch
+): Promise<ReportFetchResult> {
+  try {
+    const url = buildApiUrl('/api/v1/analyze/dsp');
+    const res = await customFetch(url, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+      },
+      body: formData,
+    });
+
+    if (res.ok) {
+      const data: AnalysisReport = await res.json();
+      const validation = validateAnalysisReport(data, { expectedMode: 'dsp' });
+
+      if (validation.valid) {
+        return {
+          success: true,
+          source: 'backend',
+          report: data,
+          statusCode: res.status,
+        };
+      } else {
+        // Response failed schema validation
+        const genre = (formData.get('genre') as GenreId) || 'indie_rock';
+        const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
+        const consentJson = formData.get('consent_state_json') as string;
+        let consent: ConsentState;
+        try {
+          consent = JSON.parse(consentJson);
+        } catch {
+          consent = {
+            audio_analysis_consent: true,
+            external_ai_transfer_consent: false,
+            ai_audio_content_inspection_consent: false,
+            raw_audio_transfer_consent: false,
+            model_training_opt_in: false,
+            consent_timestamp: new Date().toISOString(),
+          };
+        }
+
+        const fallback = generatePhase1DemoReport({
+          interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
+          genre,
+          mix_stage: mixStage,
+          consent_state: consent,
+        });
+
+        return {
+          success: false,
+          source: 'offline_fallback',
+          report: fallback,
+          statusCode: res.status,
+          errorMessage: `Backend DSP report failed validation: ${validation.errors.join('; ')}`,
+        };
+      }
+    } else {
+      let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
+      try {
+        const errJson = await res.json();
+        if (errJson.detail?.message) errMsg = errJson.detail.message;
+      } catch {
+        // ignore
+      }
+
+      const genre = (formData.get('genre') as GenreId) || 'indie_rock';
+      const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
+      const consentJson = formData.get('consent_state_json') as string;
+      let consent: ConsentState;
+      try {
+        consent = JSON.parse(consentJson);
+      } catch {
+        consent = {
+          audio_analysis_consent: true,
+          external_ai_transfer_consent: false,
+          ai_audio_content_inspection_consent: false,
+          raw_audio_transfer_consent: false,
+          model_training_opt_in: false,
+          consent_timestamp: new Date().toISOString(),
+        };
+      }
+
+      const fallback = generatePhase1DemoReport({
+        interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
+        genre,
+        mix_stage: mixStage,
+        consent_state: consent,
+      });
+
+      return {
+        success: false,
+        source: 'offline_fallback',
+        report: fallback,
+        statusCode: res.status,
+        errorMessage: errMsg,
+      };
+    }
+  } catch (err: any) {
+    const genre = (formData.get('genre') as GenreId) || 'indie_rock';
+    const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
+    const fallback = generatePhase1DemoReport({
+      interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
+      genre,
+      mix_stage: mixStage,
+      consent_state: {
+        audio_analysis_consent: true,
+        external_ai_transfer_consent: false,
+        ai_audio_content_inspection_consent: false,
+        raw_audio_transfer_consent: false,
+        model_training_opt_in: false,
+        consent_timestamp: new Date().toISOString(),
+      },
+    });
+
+    return {
+      success: false,
+      source: 'offline_fallback',
+      report: fallback,
+      errorMessage: `Backend connection error (${err.message || 'offline'}).`,
+    };
+  }
+}
+
+/**
+ * Fetches an analysis report from the backend demonstration endpoint with deterministic local offline fallback.
  * Preserves genre, mix stage, and consent state.
  */
 export async function fetchAnalysisReport(
@@ -89,7 +220,7 @@ export async function fetchAnalysisReport(
     custom_filename?: string;
     custom_file_size_bytes?: number;
     custom_duration_sec?: number;
-    custom_sample_rate?: 44100 | 48000 | 88200 | 96000 | 192000;
+    custom_sample_rate?: number;
   },
   customFetch: typeof fetch = fetch
 ): Promise<ReportFetchResult> {
@@ -123,10 +254,9 @@ export async function fetchAnalysisReport(
 
     if (res.ok) {
       const data: AnalysisReport = await res.json();
-      const validation = validatePhase1AnalysisReport(data);
+      const validation = validateAnalysisReport(data, { expectedMode: 'demo' });
 
       if (validation.valid) {
-        // Apply custom file metadata if provided on client
         if (params.custom_filename) {
           data.file_metadata.filename = params.custom_filename;
         }
@@ -147,7 +277,6 @@ export async function fetchAnalysisReport(
           statusCode: res.status,
         };
       } else {
-        // Backend returned data that failed contract validation: fall back with clear error note
         const fallback = generatePhase1DemoReport(params);
         return {
           success: false,
@@ -158,7 +287,6 @@ export async function fetchAnalysisReport(
         };
       }
     } else {
-      // Backend returned non-200 (e.g. 403, 500)
       let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
       try {
         const errJson = await res.json();
@@ -177,7 +305,6 @@ export async function fetchAnalysisReport(
       };
     }
   } catch (err: any) {
-    // Network failure / backend offline -> graceful local fallback
     const fallback = generatePhase1DemoReport(params);
     return {
       success: true, // Graceful degradation

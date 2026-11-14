@@ -1,4 +1,4 @@
-name: Phase 1 Architecture & Contract CI
+name: Phase 2 Architecture, Mathematical DSP & Contract CI
 
 on:
   push:
@@ -25,22 +25,22 @@ jobs:
       - name: Run TypeScript typecheck (lint)
         run: npm run lint
 
-      - name: Run Phase 1 Contract, Privacy & Integration Unit Tests
+      - name: Run Phase 1 & 2 Contract, Privacy & Integration Unit Tests
         run: npm test
 
-      - name: Verify JSON Schema contract integrity
+      - name: Verify JSON Schema contract integrity (v2.0.0)
         run: |
           node -e '
           const fs = require("fs");
           const schema = JSON.parse(fs.readFileSync("contracts/analysis_report.schema.json", "utf8"));
-          if (schema.properties.schema_version.const !== "1.0.0") throw new Error("Invalid schema_version");
+          if (schema.properties.schema_version.const !== "2.0.0") throw new Error("Invalid schema_version");
           if (schema.properties.consent_state.properties.model_training_opt_in.default !== false) {
             throw new Error("Rule 5 violation: model_training_opt_in default must be false");
           }
           if (schema.properties.capabilities.properties.ai_stem_separation.properties.status.const !== "PROHIBITED_BY_PRODUCT_RULE") {
             throw new Error("Rule 1 violation: ai_stem_separation must be PROHIBITED_BY_PRODUCT_RULE");
           }
-          console.log("JSON Schema contract verified successfully.");
+          console.log("JSON Schema contract v2.0.0 verified successfully.");
           '
           node scripts/validate_schema.js
 
@@ -48,7 +48,7 @@ jobs:
         run: npm run build
 
   backend-contract-checks:
-    name: Backend Pytest & Contract Boundaries
+    name: Backend Pytest, DSP Engine & Contract Boundaries
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -59,8 +59,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install system audio libraries (ffmpeg & libsndfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsndfile1
+
       - name: Install backend requirements
         run: pip install -r backend/requirements.txt
 
-      - name: Run Backend Phase 1 Contract Pytest Suite
-        run: PYTHONPATH=. pytest backend/tests/test_phase1_contracts.py
+      - name: Run Full Pytest Suite (37 contract, dsp validation & endpoint tests)
+        run: PYTHONPATH=. pytest backend/tests/

@@ -23,6 +23,7 @@ interface SimpleMixCheckViewProps {
     durationSec?: number;
     sampleRate?: 44100 | 48000 | 88200 | 96000 | 192000;
   }) => void;
+  onAnalyzeAudioFile?: (file: File) => void;
   onSwitchToAdvanced: () => void;
 }
 
@@ -35,6 +36,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   onChangeGenre,
   onChangeMixStage,
   onUploadFileMetadata,
+  onAnalyzeAudioFile,
   onSwitchToAdvanced,
 }) => {
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
@@ -43,6 +45,12 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (onAnalyzeAudioFile) {
+      setUploadStatusNote(`Analyzing "${file.name}" via real Mathematical DSP...`);
+      onAnalyzeAudioFile(file);
+      return;
+    }
 
     onUploadFileMetadata({
       filename: file.name,
@@ -74,7 +82,9 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       >
         <div className="text-xs text-zinc-800 dark:text-zinc-200">
           <span className="font-mono font-semibold text-teal-900 dark:text-teal-300">
-            {reportSource === 'backend'
+            {!report.is_demonstration_data
+              ? '[MATHEMATICAL DSP ANALYSIS · REAL AUDIO MEASUREMENTS]'
+              : reportSource === 'backend'
               ? '[DEMONSTRATION DATA · PHASE 1 FASTAPI BACKEND FIXTURE]'
               : '[DEMONSTRATION DATA · PHASE 1 OFFLINE LOCAL FIXTURE]'}
           </span>{' '}

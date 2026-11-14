@@ -5,6 +5,7 @@ import {
   createDefaultConsentState,
   validateConsentForAction,
   validatePhase1AnalysisReport,
+  validateAnalysisReport,
   validateStemSubmissions,
 } from './analysisContract';
 import { generatePhase1DemoReport } from './demoFixtures';
@@ -123,4 +124,65 @@ test('Rule 2 & 4: AI payload builder blocks unconsented transfer and sends only 
   assert.equal(allowedRes.allowed, true);
   assert.ok(allowedRes.sanitizedPayload !== null);
   assert.equal(allowedRes.sanitizedPayload?.objective_measurements.true_peak_max.unit, 'dBTP');
+});
+
+test('Phase 2 DSP Contract: validateAnalysisReport validates genuine DSP report and timeline', () => {
+  const demoReport = generatePhase1DemoReport({
+    interface_mode: 'advanced',
+    genre: 'indie_rock',
+    mix_stage: 'unmastered_mix',
+    consent_state: createDefaultConsentState(),
+  });
+
+  // Convert to genuine mathematical DSP report
+  const dspReport = {
+    ...demoReport,
+    is_demonstration_data: false,
+    data_source_notice: 'MATHEMATICAL DSP ANALYSIS — REAL AUDIO MEASUREMENTS: Measured with FFmpeg libebur128 and SciPy.',
+    measurements: Object.fromEntries(
+      Object.entries(demoReport.measurements).map(([k, m]) => [
+        k,
+        { ...m, source: 'mathematical_dsp' as const },
+      ])
+    ) as typeof demoReport.measurements,
+    timeline: {
+      bucket_duration_sec: 1.0,
+      total_duration_sec: 198.4,
+      buckets: [
+        {
+          start_sec: 0.0,
+          end_sec: 1.0,
+          peak_dbfs: -3.2,
+          rms_dbfs: -18.4,
+          momentary_lufs: -16.2,
+          short_term_lufs: null,
+          phase_correlation: 0.88,
+          clipped: false,
+        },
+      ],
+    },
+  };
+
+  const dspValidation = validateAnalysisReport(dspReport, { expectedMode: 'dsp' });
+  assert.equal(dspValidation.valid, true, `Errors: ${dspValidation.errors.join('; ')}`);
+  assert.equal(dspReport.is_demonstration_data, false);
+  assert.equal(dspReport.timeline?.buckets.length, 1);
+});
+
+test('Phase 2 DSP Contract: Rejects live DSP report if measurement source is not mathematical_dsp', () => {
+  const demoReport = generatePhase1DemoReport({
+    interface_mode: 'simple',
+    genre: 'electronic_club',
+    mix_stage: 'final_master',
+    consent_state: createDefaultConsentState(),
+  });
+
+  const fakeDspReport = {
+    ...demoReport,
+    is_demonstration_data: false,
+  };
+
+  const validation = validateAnalysisReport(fakeDspReport, { expectedMode: 'dsp' });
+  assert.equal(validation.valid, false);
+  assert.ok(validation.errors.some((e) => e.includes('Live report must have source "mathematical_dsp"')));
 });

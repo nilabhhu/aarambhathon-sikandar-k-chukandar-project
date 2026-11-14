@@ -1,6 +1,6 @@
 /**
- * Canonical Shared Data Contract (Phase 1 Foundation)
- * Synchronized 1:1 with /contracts/analysis_report.schema.json
+ * Canonical Shared Data Contract (Phase 2 Real Mathematical DSP)
+ * Synchronized 1:1 with /contracts/analysis_report.schema.json (v2.0.0)
  */
 
 export type InterfaceMode = 'simple' | 'advanced';
@@ -27,6 +27,8 @@ export type MeasurementUnit =
   | 'count';
 
 export type MeasurementSource = 'phase1_demo_fixture' | 'mathematical_dsp';
+
+export type MeasurementStatus = 'optimal' | 'warning' | 'critical' | 'unavailable';
 
 export type IssueClassification = 'objective_technical' | 'subjective_stylistic';
 
@@ -92,11 +94,13 @@ export interface FileMetadata {
   filename: string;
   format: 'WAV' | 'FLAC' | 'AIFF' | 'MP3' | 'OGG';
   duration_seconds: number;
-  sample_rate_hz: 44100 | 48000 | 88200 | 96000 | 192000;
+  sample_rate_hz: number;
   bit_depth: 16 | 24 | 32 | null;
   channels: 1 | 2;
   file_size_bytes: number;
   sha256_checksum: string;
+  codec: string;
+  bit_depth_note?: string | null;
 }
 
 export interface CapabilityDescriptor {
@@ -121,16 +125,19 @@ export interface CapabilitiesMap {
 }
 
 export interface MeasurementValue {
-  value: number;
+  value: number | null;
   unit: MeasurementUnit;
   standard: string;
   target_min: number | null;
   target_max: number | null;
-  status: 'optimal' | 'warning' | 'critical';
+  status: MeasurementStatus;
   source: MeasurementSource;
+  unavailable_reason?: string | null;
+  algorithm_detail?: string | null;
 }
 
 export interface MeasurementsMap {
+  sample_peak_max: MeasurementValue;
   integrated_loudness: MeasurementValue;
   short_term_max_loudness: MeasurementValue;
   momentary_max_loudness: MeasurementValue;
@@ -145,6 +152,23 @@ export interface MeasurementsMap {
   mud_band_energy_200_500hz: MeasurementValue;
   presence_band_energy_2k_5khz: MeasurementValue;
   air_band_energy_10k_20khz: MeasurementValue;
+}
+
+export interface TimelineBucket {
+  start_sec: number;
+  end_sec: number;
+  peak_dbfs: number;
+  rms_dbfs: number;
+  momentary_lufs: number | null;
+  short_term_lufs: number | null;
+  phase_correlation: number | null;
+  clipped: boolean;
+}
+
+export interface TimelineSeries {
+  bucket_duration_sec: number;
+  total_duration_sec: number;
+  buckets: TimelineBucket[];
 }
 
 export interface IssueTimestamp {
@@ -201,7 +225,7 @@ export interface AnalysisExtensions {
 }
 
 export interface AnalysisReport {
-  schema_version: '1.0.0';
+  schema_version: '2.0.0';
   report_id: string;
   created_at: string;
   is_demonstration_data: boolean;
@@ -214,6 +238,7 @@ export interface AnalysisReport {
   issues: AnalysisIssue[];
   recommendations: MixRecommendation[];
   extensions: AnalysisExtensions;
+  timeline: TimelineSeries | null;
 }
 
 export interface StemSubmissionCandidate {
@@ -317,81 +342,126 @@ const VALID_UNITS: ReadonlySet<string> = new Set([
   'count',
 ]);
 
-export function validatePhase1AnalysisReport(report: AnalysisReport): ContractValidationResult {
-  const errors: string[] = [];
+const VALID_STATUSES: ReadonlySet<string> = new Set([
+  'optimal',
+  'warning',
+  'critical',
+  'unavailable',
+]);
 
-  if (report.schema_version !== '1.0.0') {
-    errors.push(`Invalid schema_version "${report.schema_version}". Expected "1.0.0".`);
+export function validateAnalysisReport(
+  report: AnalysisReport,
+  options?: { expectedMode?: 'dsp' | 'demo' | 'any' }
+): ContractValidationResult {
+  const errors: string[] = [];
+  const expectedMode = options?.expectedMode ?? 'any';
+
+  if (report.schema_version !== '2.0.0') {
+    errors.push(`Invalid schema_version "${report.schema_version}". Expected "2.0.0".`);
   }
 
-  // Phase 1 Enforced Boundary: is_demonstration_data MUST be true
-  if (report.is_demonstration_data !== true) {
-    errors.push(
-      'Phase 1 Boundary Violation: is_demonstration_data MUST be true for all Phase 1 responses.'
-    );
+  if (expectedMode === 'dsp' && report.is_demonstration_data !== false) {
+    errors.push('DSP Validation Error: is_demonstration_data must be false for live DSP analysis.');
+  }
+
+  if (expectedMode === 'demo' && report.is_demonstration_data !== true) {
+    errors.push('Demo Validation Error: is_demonstration_data MUST be true for demonstration responses.');
   }
 
   if (!report.data_source_notice || report.data_source_notice.length < 10) {
     errors.push('Missing or incomplete data_source_notice string.');
   }
 
-  // Verify Consent State: model_training_opt_in must be explicitly present and boolean
-  if (typeof report.consent_state.model_training_opt_in !== 'boolean') {
+  // Verify Consent State
+  if (typeof report.consent_state?.model_training_opt_in !== 'boolean') {
     errors.push('Rule 5 Violation: model_training_opt_in must be a boolean.');
   }
-  if (typeof report.consent_state.ai_audio_content_inspection_consent !== 'boolean') {
+  if (typeof report.consent_state?.ai_audio_content_inspection_consent !== 'boolean') {
     errors.push('Rule 4 Violation: ai_audio_content_inspection_consent must be a boolean.');
   }
-  if (typeof report.consent_state.raw_audio_transfer_consent !== 'boolean') {
+  if (typeof report.consent_state?.raw_audio_transfer_consent !== 'boolean') {
     errors.push('Rule 4 Violation: raw_audio_transfer_consent must be a boolean.');
   }
 
   // Verify Capabilities: ai_stem_separation must be permanently PROHIBITED_BY_PRODUCT_RULE (Rule 1)
-  if (
-    report.capabilities.ai_stem_separation.status !== 'PROHIBITED_BY_PRODUCT_RULE'
-  ) {
+  if (report.capabilities?.ai_stem_separation?.status !== 'PROHIBITED_BY_PRODUCT_RULE') {
     errors.push('Rule 1 Violation: ai_stem_separation capability must be PROHIBITED_BY_PRODUCT_RULE.');
   }
 
-  // Verify every measurement has a valid unit and non-AI source (Rule 2)
-  for (const [key, m] of Object.entries(report.measurements)) {
-    if (!VALID_UNITS.has(m.unit)) {
-      errors.push(`Invalid unit "${m.unit}" on measurement "${key}".`);
-    }
-    if (m.source !== 'phase1_demo_fixture' && m.source !== 'mathematical_dsp') {
-      errors.push(
-        `Rule 2 Violation on "${key}": Measurement source "${String(m.source)}" is invalid. AI must never invent measurements.`
-      );
-    }
-  }
-
-  // Verify issues keep objective technical warnings distinct from subjective stylistic notes (Rule 8)
-  for (const issue of report.issues) {
-    if (
-      issue.classification !== 'objective_technical' &&
-      issue.classification !== 'subjective_stylistic'
-    ) {
-      errors.push(`Rule 8 Violation: Issue "${issue.issue_id}" lacks valid classification.`);
-    }
-    if (issue.confidence < 0 || issue.confidence > 1) {
-      errors.push(`Issue "${issue.issue_id}" confidence must be between 0.0 and 1.0.`);
-    }
-    if (issue.evidence.length === 0) {
-      errors.push(`Rule 2 Violation: Issue "${issue.issue_id}" must cite at least one mathematical DSP evidence metric.`);
-    }
-    for (const ts of issue.timestamps) {
-      if (ts.end_sec < ts.start_sec) {
-        errors.push(`Issue "${issue.issue_id}" has invalid timestamp range ${ts.start_sec}..${ts.end_sec}.`);
+  // Verify measurements
+  if (!report.measurements) {
+    errors.push('Missing measurements object.');
+  } else {
+    for (const [key, m] of Object.entries(report.measurements)) {
+      if (!VALID_UNITS.has(m.unit)) {
+        errors.push(`Invalid unit "${m.unit}" on measurement "${key}".`);
+      }
+      if (!VALID_STATUSES.has(m.status)) {
+        errors.push(`Invalid status "${m.status}" on measurement "${key}".`);
+      }
+      if (m.value === null && m.status !== 'unavailable') {
+        errors.push(`Measurement "${key}" has null value but status is not "unavailable".`);
+      }
+      if (m.value !== null && typeof m.value !== 'number') {
+        errors.push(`Measurement "${key}" value must be a number or null.`);
+      }
+      if (m.source !== 'phase1_demo_fixture' && m.source !== 'mathematical_dsp') {
+        errors.push(
+          `Rule 2 Violation on "${key}": Measurement source "${String(m.source)}" is invalid. AI must never invent measurements.`
+        );
+      }
+      if (report.is_demonstration_data === false && m.source !== 'mathematical_dsp') {
+        errors.push(
+          `Source mismatch on "${key}": Live report must have source "mathematical_dsp", got "${m.source}".`
+        );
       }
     }
   }
 
-  // Verify Phase 1 extensions remain null (no premature Phase 3-6 implementation)
-  for (const [extKey, extVal] of Object.entries(report.extensions)) {
-    if (extVal !== null) {
-      errors.push(
-        `Phase 1 Boundary Violation: Extension slot "${extKey}" must be null in Phase 1.`
-      );
+  // Verify issues keep objective technical warnings distinct from subjective stylistic notes (Rule 8)
+  if (!Array.isArray(report.issues)) {
+    errors.push('Missing or invalid issues array.');
+  } else {
+    for (const issue of report.issues) {
+      if (
+        issue.classification !== 'objective_technical' &&
+        issue.classification !== 'subjective_stylistic'
+      ) {
+        errors.push(`Rule 8 Violation: Issue "${issue.issue_id}" lacks valid classification.`);
+      }
+      if (typeof issue.confidence !== 'number' || issue.confidence < 0 || issue.confidence > 1) {
+        errors.push(`Issue "${issue.issue_id}" confidence must be between 0.0 and 1.0.`);
+      }
+      if (!Array.isArray(issue.evidence) || issue.evidence.length === 0) {
+        errors.push(`Rule 2 Violation: Issue "${issue.issue_id}" must cite at least one mathematical DSP evidence metric.`);
+      }
+      if (Array.isArray(issue.timestamps)) {
+        for (const ts of issue.timestamps) {
+          if (ts.end_sec < ts.start_sec) {
+            errors.push(`Issue "${issue.issue_id}" has invalid timestamp range ${ts.start_sec}..${ts.end_sec}.`);
+          }
+        }
+      }
+    }
+  }
+
+  // Timeline validation (when present)
+  if (report.timeline !== null && report.timeline !== undefined) {
+    if (!Array.isArray(report.timeline.buckets)) {
+      errors.push('Timeline present but buckets is not an array.');
+    } else if (report.timeline.buckets.length > 240) {
+      errors.push(`Timeline buckets exceed limit of 240 (received ${report.timeline.buckets.length}).`);
+    }
+  }
+
+  // Verify Phase 3-6 extensions remain null
+  if (report.extensions) {
+    for (const [extKey, extVal] of Object.entries(report.extensions)) {
+      if (extVal !== null) {
+        errors.push(
+          `Phase Boundary Violation: Extension slot "${extKey}" must be null.`
+        );
+      }
     }
   }
 
@@ -399,6 +469,13 @@ export function validatePhase1AnalysisReport(report: AnalysisReport): ContractVa
     valid: errors.length === 0,
     errors,
   };
+}
+
+/**
+ * Backward compatibility alias for Phase 1 tests / demo validator
+ */
+export function validatePhase1AnalysisReport(report: AnalysisReport): ContractValidationResult {
+  return validateAnalysisReport(report, { expectedMode: 'demo' });
 }
 
 export function buildConsentGatedAiPayload(report: AnalysisReport): {

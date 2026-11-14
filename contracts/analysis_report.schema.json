@@ -17,12 +17,13 @@
     "measurements",
     "issues",
     "recommendations",
-    "extensions"
+    "extensions",
+    "timeline"
   ],
   "properties": {
     "schema_version": {
       "type": "string",
-      "const": "1.0.0",
+      "const": "2.0.0",
       "description": "Semantic version of the shared contract."
     },
     "report_id": {
@@ -35,7 +36,7 @@
     },
     "is_demonstration_data": {
       "type": "boolean",
-      "description": "MUST be true in Phase 1 mock/fixture responses so demonstration data is never mistaken for live DSP measurements."
+      "description": "False for genuine mathematical DSP measurements; true for demonstration and offline fallback reports."
     },
     "data_source_notice": {
       "type": "string",
@@ -179,7 +180,8 @@
         "sample_rate_hz",
         "bit_depth",
         "channels",
-        "file_size_bytes"
+        "file_size_bytes",
+        "codec"
       ],
       "properties": {
         "filename": {
@@ -201,13 +203,8 @@
         },
         "sample_rate_hz": {
           "type": "integer",
-          "enum": [
-            44100,
-            48000,
-            88200,
-            96000,
-            192000
-          ]
+          "minimum": 8000,
+          "maximum": 384000
         },
         "bit_depth": {
           "type": [
@@ -234,6 +231,15 @@
         },
         "sha256_checksum": {
           "type": "string"
+        },
+        "codec": {
+          "type": "string"
+        },
+        "bit_depth_note": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },
@@ -297,6 +303,7 @@
     "measurements": {
       "type": "object",
       "required": [
+        "sample_peak_max",
         "integrated_loudness",
         "short_term_max_loudness",
         "momentary_max_loudness",
@@ -353,6 +360,9 @@
           "$ref": "#/$defs/measurementValue"
         },
         "air_band_energy_10k_20khz": {
+          "$ref": "#/$defs/measurementValue"
+        },
+        "sample_peak_max": {
           "$ref": "#/$defs/measurementValue"
         }
       }
@@ -590,6 +600,76 @@
           ]
         }
       }
+    },
+    "timeline": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "properties": {
+        "bucket_duration_sec": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "total_duration_sec": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "buckets": {
+          "type": "array",
+          "maxItems": 240,
+          "items": {
+            "type": "object",
+            "required": [
+              "start_sec",
+              "end_sec",
+              "peak_dbfs",
+              "rms_dbfs",
+              "momentary_lufs",
+              "short_term_lufs",
+              "phase_correlation",
+              "clipped"
+            ],
+            "properties": {
+              "start_sec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "end_sec": {
+                "type": "number",
+                "minimum": 0
+              },
+              "peak_dbfs": {
+                "type": "number"
+              },
+              "rms_dbfs": {
+                "type": "number"
+              },
+              "momentary_lufs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "short_term_lufs": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "phase_correlation": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "clipped": {
+                "type": "boolean"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {
@@ -636,7 +716,10 @@
       ],
       "properties": {
         "value": {
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "unit": {
           "type": "string",
@@ -672,7 +755,8 @@
           "enum": [
             "optimal",
             "warning",
-            "critical"
+            "critical",
+            "unavailable"
           ]
         },
         "source": {
@@ -682,6 +766,18 @@
             "mathematical_dsp"
           ],
           "description": "Rule 2: Mathematical DSP is the sole source of truth in production; AI is forbidden from inventing measurement values."
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "algorithm_detail": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     }

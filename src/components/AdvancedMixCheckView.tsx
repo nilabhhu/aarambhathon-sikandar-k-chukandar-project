@@ -34,11 +34,13 @@ interface AdvancedMixCheckViewProps {
   consent: ConsentState;
   onChangeGenre: (genre: GenreId) => void;
   onChangeMixStage: (stage: MixStage) => void;
+  onAnalyzeAudioFile?: (file: File) => void;
 }
 
 type WorkbenchState = 'report' | 'empty' | 'loading' | 'error';
 
 const MEASUREMENT_LABELS: Record<keyof AnalysisReport['measurements'], string> = {
+  sample_peak_max: 'Sample Peak Max',
   integrated_loudness: 'Integrated Loudness',
   short_term_max_loudness: 'Short-Term Max (3s)',
   momentary_max_loudness: 'Momentary Max (400ms)',
@@ -63,6 +65,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   consent,
   onChangeGenre,
   onChangeMixStage,
+  onAnalyzeAudioFile,
 }) => {
   const [workbenchState, setWorkbenchState] = useState<WorkbenchState>('report');
   const firstIssue = report.issues[0];
@@ -140,7 +143,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
       >
         <div className="text-xs text-zinc-800 dark:text-zinc-200">
           <span className="font-mono font-semibold text-teal-900 dark:text-teal-300">
-            {reportSource === 'backend'
+            {!report.is_demonstration_data
+              ? '[MATHEMATICAL DSP ANALYSIS · REAL AUDIO MEASUREMENTS]'
+              : reportSource === 'backend'
               ? '[DEMONSTRATION DATA · PHASE 1 FASTAPI BACKEND FIXTURE]'
               : '[DEMONSTRATION DATA · PHASE 1 OFFLINE LOCAL FIXTURE]'}
           </span>{' '}
@@ -319,6 +324,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
             monoMode={monoMode}
             onToggleMono={() => setMonoMode((m) => !m)}
             isUnmastered={mixStage === 'unmastered_mix'}
+            timeline={report.timeline}
+            isDemonstrationData={report.is_demonstration_data}
           />
 
           {/* Categorized DSP Metric Sections (Loudness, Peaks, Dynamics, Frequency, Stereo) */}

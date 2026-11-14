@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   checkBackendHealth,
   fetchAnalysisReport,
+  analyzeAudioWithDsp,
 } from '../services/apiService';
 import { createDefaultConsentState } from './analysisContract';
 import { generatePhase1DemoReport } from './demoFixtures';
@@ -141,4 +142,44 @@ test('Backend Integration: fetchAnalysisReport blocks analysis immediately when 
   assert.equal(result.success, false);
   assert.equal(result.statusCode, 403);
   assert.ok(result.errorMessage?.includes('Permission 1'));
+});
+
+test('Backend Integration: analyzeAudioWithDsp successfully validates live DSP report', async () => {
+  const baseReport = generatePhase1DemoReport({
+    interface_mode: 'advanced',
+    genre: 'indie_rock',
+    mix_stage: 'unmastered_mix',
+    consent_state: createDefaultConsentState(),
+  });
+
+  const mockDspReport = {
+    ...baseReport,
+    is_demonstration_data: false,
+    data_source_notice: 'MATHEMATICAL DSP ANALYSIS — REAL AUDIO MEASUREMENTS',
+    measurements: Object.fromEntries(
+      Object.entries(baseReport.measurements).map(([k, m]) => [
+        k,
+        { ...m, source: 'mathematical_dsp' },
+      ])
+    ),
+  };
+
+  const mockFetch = async () => {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => mockDspReport,
+    } as unknown as Response;
+  };
+
+  const fd = new FormData();
+  fd.append('interface_mode', 'advanced');
+  fd.append('genre', 'indie_rock');
+  fd.append('mix_stage', 'unmastered_mix');
+  fd.append('consent_state_json', JSON.stringify(createDefaultConsentState()));
+
+  const result = await analyzeAudioWithDsp(fd, mockFetch as unknown as typeof fetch);
+  assert.equal(result.success, true);
+  assert.equal(result.source, 'backend');
+  assert.equal(result.report.is_demonstration_data, false);
 });

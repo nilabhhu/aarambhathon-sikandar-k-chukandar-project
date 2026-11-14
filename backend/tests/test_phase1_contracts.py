@@ -1,12 +1,13 @@
 """
-Phase 1 Pytest Contract, Endpoint & Boundary Verification Suite.
+Phase 1 & 2 Pytest Contract, Endpoint & Boundary Verification Suite.
 Verifies:
-1. Health and capabilities endpoints return HTTP 200 and enforce Phase 1 boundaries.
-2. Canonical schema and demo report endpoints return valid version 1.0.0 contracts.
+1. Health and capabilities endpoints return HTTP 200 and enforce Phase 2 boundaries.
+2. Canonical schema and demo report endpoints return valid version 2.0.0 contracts.
 3. Rule 1: AI stem separation / pseudo-stems are rejected with HTTP 422.
 4. Rule 4: Consent gating blocks unauthorized analysis (403) and external AI transfer (403).
-5. Phase 2-6 endpoints return HTTP 501 Not Implemented.
-6. Rule 9: Ephemeral temporary storage is cleaned up automatically without disk residue.
+5. Phase 2 DSP endpoint is implemented and guarded.
+6. Phases 3-6 endpoints return HTTP 501 Not Implemented.
+7. Rule 9: Ephemeral temporary storage is cleaned up automatically without disk residue.
 """
 
 import json
@@ -28,8 +29,8 @@ def test_root_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "ok"
-    assert data["phase"] == 1
-    assert data["is_demonstration_mode"] is True
+    assert data["phase"] == 2
+    assert data["is_demonstration_mode"] is False
 
 
 def test_api_v1_health_endpoint():
@@ -37,17 +38,17 @@ def test_api_v1_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "ok"
-    assert data["phase"] == 1
-    assert data["mode"] == "foundation_contracts_only"
-    assert data["is_demonstration_mode"] is True
-    assert data["active_contract_version"] == "1.0.0"
+    assert data["phase"] == 2
+    assert data["mode"] == "mathematical_dsp_active"
+    assert data["is_demonstration_mode"] is False
+    assert data["active_contract_version"] == "2.0.0"
 
 
-def test_capabilities_endpoint_reports_phase1_boundaries():
+def test_capabilities_endpoint_reports_phase2_boundaries():
     res = client.get("/api/v1/capabilities")
     assert res.status_code == 200
     data = res.json()
-    assert data["phase"] == 1
+    assert data["phase"] == 2
 
     rules = data["rules_enforced"]
     assert rules["no_ai_stem_separation"] is True
@@ -58,7 +59,7 @@ def test_capabilities_endpoint_reports_phase1_boundaries():
     assert rules["zero_unnecessary_infrastructure"] is True
 
     caps = data["capabilities_status"]
-    assert caps["dsp_core_measurements"] == "DEMO_FIXTURE_ONLY"
+    assert caps["dsp_core_measurements"] == "IMPLEMENTED"
     assert caps["ai_stem_separation"] == "PROHIBITED_BY_PRODUCT_RULE"
     assert caps["streaming_normalization_estimates"] == "NOT_IMPLEMENTED_PHASE_3"
     assert caps["original_stem_multitrack_analysis"] == "NOT_IMPLEMENTED_PHASE_4"
@@ -70,18 +71,18 @@ def test_schema_endpoint_serves_valid_canonical_schema():
     assert res.status_code == 200
     schema = res.json()
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert schema["properties"]["schema_version"]["const"] == "1.0.0"
+    assert schema["properties"]["schema_version"]["const"] == "2.0.0"
 
 
 def test_demo_report_endpoint_validates_against_schema():
     res = client.get("/api/v1/demo/report")
     assert res.status_code == 200
     report = res.json()
-    assert report["schema_version"] == "1.0.0"
+    assert report["schema_version"] == "2.0.0"
     assert report["is_demonstration_data"] is True
     assert len(report["issues"]) >= 4
 
-    # Validate against actual canonical schema
+    # Validate against actual canonical schema v2.0.0
     with open(SCHEMA_FILE, "r", encoding="utf-8") as f:
         schema = json.load(f)
     jsonschema.validate(instance=report, schema=schema)
@@ -121,10 +122,10 @@ def test_analyze_demo_respects_consent_gate():
     assert report["input_context"]["genre"] == "indie_rock"
 
 
-def test_phase2_dsp_endpoint_returns_501_not_implemented():
+def test_phase2_dsp_endpoint_requires_multipart_and_consent():
+    # Missing multipart body -> 422 Unprocessable Entity
     res = client.post("/api/v1/analyze/dsp")
-    assert res.status_code == 501
-    assert res.json()["detail"]["target_phase"] == 2
+    assert res.status_code == 422
 
 
 def test_phase3_reference_and_streaming_return_501():
@@ -146,7 +147,7 @@ def test_rule1_rejects_ai_stem_separation_with_422():
     assert res.json()["detail"]["error_code"] == "PROHIBITED_AI_STEM_SEPARATION"
 
 
-def test_original_stems_return_501_in_phase1():
+def test_original_stems_return_501_in_phase2():
     res = client.post(
         "/api/v1/analyze/stems",
         json=[{"stem_name": "original_drums.wav", "stem_source_type": "user_uploaded_original"}],

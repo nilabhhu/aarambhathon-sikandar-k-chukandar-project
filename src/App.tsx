@@ -12,7 +12,7 @@ import {
   MixStage,
 } from './contracts/analysisContract';
 import { generatePhase1DemoReport, GENRE_LABELS, MIX_STAGE_LABELS } from './contracts/demoFixtures';
-import { checkBackendHealth, fetchAnalysisReport } from './services/apiService';
+import { checkBackendHealth, fetchAnalysisReport, analyzeAudioWithDsp } from './services/apiService';
 import { ConsentGatePanel } from './components/ConsentGatePanel';
 import { SimpleMixCheckView } from './components/SimpleMixCheckView';
 import { AdvancedMixCheckView } from './components/AdvancedMixCheckView';
@@ -53,7 +53,7 @@ export default function App() {
     filename?: string;
     fileSize?: number;
     durationSec?: number;
-    sampleRate?: 44100 | 48000 | 88200 | 96000 | 192000;
+    sampleRate?: number;
   }>({});
 
   const [reportSource, setReportSource] = useState<'backend' | 'offline_fallback'>('offline_fallback');
@@ -135,6 +135,30 @@ export default function App() {
       isCancelled = true;
     };
   }, [route, genre, mixStage, consent, customFileMeta]);
+
+  const handleAnalyzeAudioFile = async (file: File) => {
+    setLoadingReport(true);
+    setReportError(null);
+    try {
+      const fd = new FormData();
+      fd.append('audio_file', file);
+      fd.append('interface_mode', route === 'simple' ? 'simple' : 'advanced');
+      fd.append('genre', genre);
+      fd.append('mix_stage', mixStage);
+      fd.append('consent_state_json', JSON.stringify(consent));
+
+      const result = await analyzeAudioWithDsp(fd);
+      setActiveReport(result.report);
+      setReportSource(result.source);
+      if (!result.success && result.errorMessage) {
+        setReportError(result.errorMessage);
+      }
+    } catch (err: any) {
+      setReportError(err.message || 'DSP analysis failed');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
 
   // Manual or on-demand backend health check
   const handleCheckBackendHealth = async () => {
@@ -526,6 +550,7 @@ export default function App() {
                 })
               }
               onSwitchToAdvanced={() => navigateTo('advanced')}
+              onAnalyzeAudioFile={handleAnalyzeAudioFile}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
@@ -547,6 +572,7 @@ export default function App() {
               consent={consent}
               onChangeGenre={setGenre}
               onChangeMixStage={setMixStage}
+              onAnalyzeAudioFile={handleAnalyzeAudioFile}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>

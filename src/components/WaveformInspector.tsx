@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { AnalysisIssue } from '../contracts/analysisContract';
+import { AnalysisIssue, TimelineSeries } from '../contracts/analysisContract';
 import { Eye, Info } from 'lucide-react';
 
 interface WaveformInspectorProps {
@@ -14,6 +14,8 @@ interface WaveformInspectorProps {
   monoMode: boolean;
   onToggleMono: () => void;
   isUnmastered: boolean;
+  timeline?: TimelineSeries | null;
+  isDemonstrationData?: boolean;
 }
 
 export function formatTimecode(sec: number): string {
@@ -33,9 +35,25 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
   monoMode,
   onToggleMono,
   isUnmastered,
+  timeline,
+  isDemonstrationData = true,
 }) => {
-  // Deterministic synthetic envelope bars illustrating Verse/Chorus/Bridge structural envelope for Phase 1 verification
+  // Use real DSP timeline series if available; fallback to deterministic synthetic envelope for demo
   const bars = useMemo(() => {
+    if (timeline && timeline.buckets && timeline.buckets.length > 0) {
+      return timeline.buckets.map((b, i) => {
+        const peakAmp = Math.min(1.0, Math.max(0.04, Math.pow(10, b.peak_dbfs / 20.0)));
+        const rmsAmp = Math.min(peakAmp, Math.max(0.02, Math.pow(10, b.rms_dbfs / 20.0)));
+        return {
+          index: i,
+          timeSec: b.start_sec,
+          peakAmplitude: peakAmp,
+          rmsAmplitude: rmsAmp,
+          clipped: b.clipped,
+        };
+      });
+    }
+
     const count = 96;
     const result: { index: number; timeSec: number; peakAmplitude: number; rmsAmplitude: number; clipped: boolean }[] = [];
     for (let i = 0; i < count; i++) {
@@ -49,7 +67,7 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       if (inChorus1 || inChorus2) {
         basePeak = isUnmastered ? 0.94 : 0.99;
       } else if (inBridge) {
-        basePeak = monoMode ? 0.44 : 0.68; // Illustrates visual mono fold-down cancellation dip in bridge
+        basePeak = monoMode ? 0.44 : 0.68;
       }
 
       const peakAmplitude = Math.min(1.0, basePeak);
@@ -65,26 +83,30 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       });
     }
     return result;
-  }, [durationSeconds, isUnmastered, monoMode]);
+  }, [durationSeconds, isUnmastered, monoMode, timeline]);
 
   return (
     <section
-      aria-label="Synthetic Waveform Profile and Issue Timestamp Selector"
+      aria-label="Waveform Profile and Issue Timestamp Selector"
       className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-5 space-y-4"
     >
       <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
         <div>
           <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
             <span className="font-semibold text-teal-800 dark:text-teal-400">
-              SYNTHETIC DEMO ENVELOPE (PHASE 1 VISUALIZATION)
+              {isDemonstrationData === false
+                ? 'MATHEMATICAL DSP TIMELINE (REAL AUDIO ENVELOPE)'
+                : 'SYNTHETIC DEMO ENVELOPE (PHASE 1 VISUALIZATION)'}
             </span>
             <span aria-hidden="true">·</span>
             <span>DURATION {formatTimecode(durationSeconds)}</span>
             <span aria-hidden="true">·</span>
-            <span>SIMULATED PEAK / RMS</span>
+            <span>{isDemonstrationData === false ? 'MEASURED PEAK / RMS' : 'SIMULATED PEAK / RMS'}</span>
           </div>
           <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-            Synthetic Time-Domain Profile & Clickable Issue Regions
+            {isDemonstrationData === false
+              ? 'DSP Time-Domain Waveform & Clickable Issue Regions'
+              : 'Synthetic Time-Domain Profile & Clickable Issue Regions'}
           </h3>
         </div>
 
@@ -109,149 +131,123 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
         </div>
       </div>
 
-      {/* Synthetic Visualization Disclosure Notice */}
+      {/* Visualization Disclosure Notice */}
       <div className="flex items-start gap-2 p-2.5 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-600 dark:text-zinc-400">
         <Info className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0 mt-0.5" />
         <span>
-          <strong>Phase 1 Visual Simulation Only:</strong> This waveform is a mathematically generated synthetic envelope illustrating song structure and region highlighting. No real audio playback engine or live audio decoding is active in Phase 1; genuine audio playback, real stereo auditioning, and real waveform extraction belong to Phase 2.
+          {isDemonstrationData === false ? (
+            <>
+              <strong>Mathematical DSP Measurement:</strong> This waveform profile is extracted from real decoded float32 audio samples across uniform time buckets.
+            </>
+          ) : (
+            <>
+              <strong>Phase 1 Visual Simulation Only:</strong> This waveform is a mathematically generated synthetic envelope illustrating song structure and region highlighting. No real audio playback engine or live audio decoding is active in demonstration mode; real waveform extraction belongs to Phase 2 mathematical DSP.
+            </>
+          )}
         </span>
       </div>
 
-      {/* SVG Synthetic Waveform Envelope */}
-      <div className="relative bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-md p-4">
-        <div className="flex items-center justify-between text-[11px] font-mono tabular-nums text-zinc-500 dark:text-zinc-400 mb-2">
-          <span>0.0 dBFS Reference Ceiling</span>
-          <span>
-            {activeTimestamp
-              ? `Highlighted Region: ${activeTimestamp.label} (${formatTimecode(activeTimestamp.start_sec)} – ${formatTimecode(activeTimestamp.end_sec)})`
-              : 'Click any timestamp marker below to highlight region'}
-          </span>
-          <span>
-            {monoMode
-              ? 'Simulated Visual Cancellation on Bridge (01:48–02:04)'
-              : 'Simulated Stereo Envelope'}
-          </span>
-        </div>
+      {/* SVG Waveform Envelope */}
+      <div className="relative w-full h-32 bg-zinc-50 dark:bg-zinc-950 rounded border border-zinc-200 dark:border-zinc-800 overflow-hidden select-none">
+        {/* Zero baseline */}
+        <div className="absolute top-1/2 left-0 right-0 h-px bg-zinc-200 dark:bg-zinc-800 pointer-events-none" />
 
-        <svg
-          viewBox="0 0 960 140"
-          className="w-full h-36 overflow-visible"
-          role="img"
-          aria-label="Synthetic audio waveform envelope showing simulated peak and RMS amplitude across track duration"
-        >
-          {/* Horizontal dBFS reference gridlines */}
-          <line x1="0" y1="10" x2="960" y2="10" stroke="currentColor" className="text-red-300 dark:text-red-900/60" strokeDasharray="3 3" strokeWidth="1" />
-          <line x1="0" y1="70" x2="960" y2="70" stroke="currentColor" className="text-zinc-300 dark:text-zinc-800" strokeWidth="1" />
-          <line x1="0" y1="130" x2="960" y2="130" stroke="currentColor" className="text-red-300 dark:text-red-900/60" strokeDasharray="3 3" strokeWidth="1" />
+        {/* Region Highlights for Issues */}
+        {issues.map((issue) =>
+          issue.timestamps.map((ts, idx) => {
+            const leftPct = (ts.start_sec / durationSeconds) * 100;
+            const widthPct = Math.max(1, ((ts.end_sec - ts.start_sec) / durationSeconds) * 100);
+            const isSelected =
+              activeIssueId === issue.issue_id &&
+              activeTimestamp?.start_sec === ts.start_sec;
 
-          {/* Highlighted active issue timestamp window */}
-          {activeTimestamp && (
-            <rect
-              x={(activeTimestamp.start_sec / durationSeconds) * 960}
-              y="0"
-              width={Math.max(
-                4,
-                ((activeTimestamp.end_sec - activeTimestamp.start_sec) / durationSeconds) * 960
-              )}
-              height="140"
-              className="fill-teal-700/15 dark:fill-teal-400/20 stroke-teal-700/50 dark:stroke-teal-400/60"
-              strokeWidth="1.5"
-            />
-          )}
-
-          {/* Waveform vertical bars */}
-          {bars.map((bar) => {
-            const x = (bar.index / bars.length) * 960;
-            const barWidth = 960 / bars.length - 2;
-            const peakHeight = bar.peakAmplitude * 56;
-            const rmsHeight = bar.rmsAmplitude * 56;
-
-            const inActiveRegion =
-              activeTimestamp &&
-              bar.timeSec >= activeTimestamp.start_sec &&
-              bar.timeSec <= activeTimestamp.end_sec;
+            const isTechnical = issue.classification === 'objective_technical';
 
             return (
-              <g key={bar.index} transform={`translate(${x}, 70)`}>
-                {/* Peak envelope bar */}
-                <rect
-                  x="0"
-                  y={-peakHeight}
-                  width={barWidth}
-                  height={peakHeight * 2}
-                  rx="1"
-                  className={
+              <button
+                key={`${issue.issue_id}-${idx}`}
+                type="button"
+                onClick={() => onSelectTimestamp(issue.issue_id, ts)}
+                title={`${issue.title} (${formatTimecode(ts.start_sec)} – ${formatTimecode(ts.end_sec)})`}
+                style={{ left: `${leftPct}%`, width: `${widthPct}%` }}
+                className={`absolute inset-y-0 cursor-pointer transition-all border-x ${
+                  isSelected
+                    ? isTechnical
+                      ? 'bg-rose-500/25 border-rose-600 dark:bg-rose-500/35 dark:border-rose-400 z-20'
+                      : 'bg-amber-500/25 border-amber-600 dark:bg-amber-500/35 dark:border-amber-400 z-20'
+                    : isTechnical
+                    ? 'bg-rose-500/10 border-rose-300 dark:bg-rose-500/15 dark:border-rose-900/60 hover:bg-rose-500/20 z-10'
+                    : 'bg-amber-500/10 border-amber-300 dark:bg-amber-500/15 dark:border-amber-900/60 hover:bg-amber-500/20 z-10'
+                }`}
+              >
+                <span className="sr-only">
+                  {issue.title}: {formatTimecode(ts.start_sec)} to {formatTimecode(ts.end_sec)}
+                </span>
+              </button>
+            );
+          })
+        )}
+
+        {/* Vertical Waveform Amplitude Bars */}
+        <div className="absolute inset-0 flex items-center justify-between px-1 pointer-events-none">
+          {bars.map((bar) => {
+            const peakHeight = Math.max(4, bar.peakAmplitude * 100);
+            const rmsHeight = Math.max(2, bar.rmsAmplitude * 100);
+
+            return (
+              <div
+                key={bar.index}
+                style={{ height: `${peakHeight}%` }}
+                className="flex-1 max-w-[4px] mx-[0.5px] flex items-center justify-center"
+              >
+                {/* Peak bar */}
+                <div
+                  className={`w-full rounded-sm transition-all ${
                     bar.clipped
-                      ? 'fill-red-700/80 dark:fill-red-500/80'
-                      : inActiveRegion
-                        ? 'fill-teal-800 dark:fill-teal-300'
-                        : 'fill-zinc-300 dark:fill-zinc-700'
-                  }
-                />
-                {/* RMS interior core bar */}
-                <rect
-                  x="0"
-                  y={-rmsHeight}
-                  width={barWidth}
-                  height={rmsHeight * 2}
-                  rx="1"
-                  className={
-                    inActiveRegion
-                      ? 'fill-teal-950 dark:fill-teal-100'
-                      : 'fill-zinc-500 dark:fill-zinc-500'
-                  }
-                  opacity="0.85"
-                />
-              </g>
+                      ? 'bg-rose-600 dark:bg-rose-500'
+                      : 'bg-zinc-300 dark:bg-zinc-700'
+                  }`}
+                  style={{ height: '100%' }}
+                >
+                  {/* RMS center core */}
+                  <div
+                    className="w-full bg-zinc-600 dark:bg-zinc-400 rounded-sm mx-auto my-auto"
+                    style={{ height: `${(rmsHeight / peakHeight) * 100}%` }}
+                  />
+                </div>
+              </div>
             );
           })}
-        </svg>
-
-        {/* Time ruler markers */}
-        <div className="flex justify-between text-[10px] font-mono tabular-nums text-zinc-400 dark:text-zinc-500 mt-2">
-          <span>00:00.0</span>
-          <span>00:45.0</span>
-          <span>01:30.0</span>
-          <span>02:15.0</span>
-          <span>{formatTimecode(durationSeconds)}</span>
         </div>
+
+        {/* Active Scrub Marker if timestamp selected */}
+        {activeTimestamp && (
+          <div
+            style={{ left: `${(activeTimestamp.start_sec / durationSeconds) * 100}%` }}
+            className="absolute top-0 bottom-0 w-0.5 bg-teal-800 dark:bg-teal-400 z-30 pointer-events-none"
+          >
+            <div className="absolute -top-1 -left-1.5 w-3.5 h-3.5 bg-teal-800 dark:bg-teal-400 rounded-full" />
+          </div>
+        )}
       </div>
 
-      {/* Clickable Timestamp Strip */}
-      <div>
-        <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-          Clickable Issue Timestamp Markers (Select to highlight corresponding region on envelope):
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {issues.flatMap((issue) =>
-            issue.timestamps.map((ts) => {
-              const isSelected =
-                activeIssueId === issue.issue_id &&
-                activeTimestamp?.start_sec === ts.start_sec;
-              return (
-                <button
-                  key={`${issue.issue_id}-${ts.start_sec}`}
-                  type="button"
-                  onClick={() => onSelectTimestamp(issue.issue_id, ts)}
-                  className={`px-3 py-1.5 rounded-md text-xs font-mono tabular-nums border transition-colors text-left ${
-                    isSelected
-                      ? 'bg-teal-800 text-white border-teal-800 dark:bg-teal-600 dark:border-teal-500'
-                      : 'bg-zinc-50 text-zinc-800 border-zinc-200 hover:border-zinc-400 dark:bg-zinc-800/70 dark:text-zinc-200 dark:border-zinc-700'
-                  }`}
-                >
-                  <span className="font-semibold">
-                    {formatTimecode(ts.start_sec)}–{formatTimecode(ts.end_sec)}
-                  </span>
-                  <span className="mx-1.5 opacity-60">·</span>
-                  <span className="font-sans">{ts.label}</span>
-                  <span className="ml-2 opacity-75">
-                    [{issue.classification === 'objective_technical' ? 'Objective' : 'Stylistic'}]
-                  </span>
-                </button>
-              );
-            })
-          )}
-        </div>
+      {/* Footer scrubber time indicators & active selection readout */}
+      <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono text-zinc-500 dark:text-zinc-400">
+        <div>00:00.0</div>
+        {activeTimestamp ? (
+          <div className="text-zinc-900 dark:text-zinc-100 font-sans font-medium text-xs bg-zinc-100 dark:bg-zinc-800 px-3 py-1 rounded">
+            Auditioning cue:{' '}
+            <span className="font-mono font-semibold">
+              {formatTimecode(activeTimestamp.start_sec)} – {formatTimecode(activeTimestamp.end_sec)}
+            </span>{' '}
+            ({activeTimestamp.label})
+          </div>
+        ) : (
+          <div className="text-zinc-400 dark:text-zinc-500 italic font-sans text-xs">
+            Click any highlighted region above or card timestamp below to select
+          </div>
+        )}
+        <div>{formatTimecode(durationSeconds)}</div>
       </div>
     </section>
   );
