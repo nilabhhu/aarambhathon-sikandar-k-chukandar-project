@@ -158,10 +158,13 @@ export default function App() {
     try {
       const fd = new FormData();
       fd.append('audio_file', file);
+      fd.append('file', file);
       fd.append('interface_mode', route === 'simple' ? 'simple' : 'advanced');
       fd.append('genre', genre);
       fd.append('mix_stage', mixStage);
+      fd.append('stage', mixStage);
       fd.append('consent_state_json', JSON.stringify(consent));
+      fd.append('consent_state', JSON.stringify(consent));
 
       // After upload starts, show analyzing state
       const timer = setTimeout(() => {

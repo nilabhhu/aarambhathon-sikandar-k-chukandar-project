@@ -28,7 +28,7 @@ def test_root_health_endpoint():
     res = client.get("/health")
     assert res.status_code == 200
     data = res.json()
-    assert data["status"] == "ok"
+    assert data["status"] in ("ok", "online")
     assert data["phase"] == 2
     assert data["is_demonstration_mode"] is False
 
@@ -37,7 +37,7 @@ def test_api_v1_health_endpoint():
     res = client.get("/api/v1/health")
     assert res.status_code == 200
     data = res.json()
-    assert data["status"] == "ok"
+    assert data["status"] in ("ok", "online")
     assert data["phase"] == 2
     assert data["mode"] == "mathematical_dsp_active"
     assert data["is_demonstration_mode"] is False

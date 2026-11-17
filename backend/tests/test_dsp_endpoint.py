@@ -455,3 +455,25 @@ def test_fixture_18_file_exceeding_100mb_rejected(monkeypatch):
 
     assert res.status_code == 413
     assert res.json()["detail"]["error_code"] == "FILE_TOO_LARGE"
+
+
+# 19. Parameter Aliases & Genre Normalization & Default Consent Tests
+def test_aliases_file_and_stage_and_normalized_genre_and_default_consent():
+    data, sr = generate_sine_wave(duration_sec=1.5, sample_rate=48000, peak_dbfs=-6.0, channels=2)
+    wav_bytes = save_audio_to_bytes(data, sr, subtype="PCM_24", format="WAV")
+
+    res = client.post(
+        "/api/v1/analyze/dsp",
+        files={"file": ("alias_test.wav", wav_bytes, "audio/wav")},
+        data={
+            "stage": "final_master",
+            "genre": "Indie Rock / Alternative",
+        },
+    )
+
+    assert res.status_code == 200
+    report = res.json()
+    assert report["input_context"]["genre"] == "indie_rock"
+    assert report["input_context"]["mix_stage"] == "final_master"
+    assert report["consent_state"]["audio_analysis_consent"] is True
+    jsonschema.validate(instance=report, schema=SCHEMA_V2)

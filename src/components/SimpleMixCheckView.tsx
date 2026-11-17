@@ -15,8 +15,11 @@ import {
   ArrowRight,
   Shield,
   X,
-  Play,
-  RotateCcw,
+  Volume2,
+  Activity,
+  Layers,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 
 interface SimpleMixCheckViewProps {
@@ -65,7 +68,13 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   onLoadDemonstration,
 }) => {
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
-  const [activeIssueId, setActiveIssueId] = useState<string | null>(report.issues[0]?.issue_id ?? null);
+  const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({
+    '0': true, // Keep first card open by default for learning flow
+  });
+  const [showStylisticNotes, setShowStylisticNotes] = useState<boolean>(false);
+  const [activeIssueId, setActiveIssueId] = useState<string | null>(
+    report.issues[0]?.issue_id ?? null
+  );
   const [activeTimestamp, setActiveTimestamp] = useState<{
     start_sec: number;
     end_sec: number;
@@ -94,18 +103,71 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
     setCheckedSteps((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const objectiveIssues = report.issues.filter(
-    (i) => i.classification === 'objective_technical'
-  );
+  const toggleCardExpansion = (indexStr: string) => {
+    setExpandedCards((prev) => ({ ...prev, [indexStr]: !prev[indexStr] }));
+  };
+
+  const isProcessing = analysisStage === 'uploading' || analysisStage === 'analyzing';
+  const isUnmastered = mixStage === 'unmastered_mix';
+
+  // Extract Key 4 Summary Metrics
+  const integratedLufs = report.measurements?.integrated_loudness?.value;
+  const targetLufsText = isUnmastered ? '-18.0 to -14.0 LUFS' : '-14.0 to -9.0 LUFS';
+  const lufsStatus =
+    integratedLufs === null
+      ? 'No Signal'
+      : isUnmastered
+      ? integratedLufs >= -18.0 && integratedLufs <= -14.0
+        ? 'Optimal'
+        : integratedLufs > -14.0
+        ? 'Hot Mix'
+        : 'Low Level'
+      : integratedLufs >= -14.0 && integratedLufs <= -9.0
+      ? 'Optimal'
+      : integratedLufs > -9.0
+      ? 'Very Loud'
+      : 'Quiet Master';
+
+  const truePeak = report.measurements?.true_peak_max?.value;
+  const targetTp = isUnmastered ? -3.0 : -1.0;
+  const truePeakStatus =
+    truePeak === null
+      ? 'No Signal'
+      : truePeak <= targetTp
+      ? 'Safe Headroom'
+      : truePeak > 0.0
+      ? 'Inter-sample Clipping'
+      : 'Ceiling Exceeded';
+
+  const phaseCorr = report.measurements?.phase_correlation_mean?.value;
+  const phaseMin = report.measurements?.phase_correlation_min?.value;
+  const isMono = report.file_metadata.channels === 1;
+  const monoSafetyText = isMono
+    ? 'Mono Signal (Safe)'
+    : phaseMin !== null && phaseMin < 0.0
+    ? `Phase Risk (${phaseMin.toFixed(2)})`
+    : phaseCorr !== null && phaseCorr >= 0.2
+    ? `Mono Safe (+${phaseCorr.toFixed(2)})`
+    : 'Check Polarity';
+
+  const mudBand = report.measurements?.mud_band_energy_200_500hz?.value;
+  const subBass = report.measurements?.sub_bass_energy_20_60hz?.value;
+  const tonalStatus =
+    mudBand !== null && mudBand > -20.0
+      ? 'Low-Mid Mud Detected'
+      : subBass !== null && subBass > -20.0
+      ? 'Heavy Low-End'
+      : 'Balanced Spectrum';
+
+  // Limit action plan to max 3 prioritized cards
+  const topRecommendations = report.recommendations.slice(0, 3);
   const stylisticIssues = report.issues.filter(
     (i) => i.classification === 'subjective_stylistic'
   );
 
-  const isProcessing = analysisStage === 'uploading' || analysisStage === 'analyzing';
-
   return (
     <div className="space-y-8">
-      {/* Mandatory Demonstration Data Disclosure Banner */}
+      {/* Clean Educational Disclosure Banner */}
       <div
         role="status"
         data-testid="demo-data-banner-simple"
@@ -117,24 +179,21 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       >
         <div className="text-xs text-zinc-800 dark:text-zinc-200">
           <span
-            className={`font-mono font-semibold ${
+            className={`font-semibold ${
               !report.is_demonstration_data
-                ? 'text-emerald-900 dark:text-emerald-300'
-                : 'text-teal-900 dark:text-teal-300'
+                ? 'text-emerald-900 dark:text-emerald-300 font-mono'
+                : 'text-teal-900 dark:text-teal-300 font-mono'
             }`}
           >
             {!report.is_demonstration_data
-              ? '[MATHEMATICAL DSP ANALYSIS · REAL AUDIO MEASUREMENTS]'
+              ? '[LIVE AUDIO ANALYSIS · MATHEMATICAL DSP]'
               : reportSource === 'backend'
               ? '[DEMONSTRATION DATA · PHASE 1 FASTAPI BACKEND FIXTURE]'
               : '[DEMONSTRATION DATA · PHASE 1 OFFLINE LOCAL FIXTURE]'}
           </span>{' '}
-          {report.data_source_notice}
-        </div>
-        <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
-          <span>provenance: {report.is_demonstration_data ? (reportSource === 'backend' ? 'fastapi-fixture' : 'offline-local') : 'real-dsp-engine'}</span>
-          <span aria-hidden="true">·</span>
-          <span>schema_version: {report.schema_version}</span>
+          {!report.is_demonstration_data
+            ? 'Real digital signal processing calculated directly from your uploaded song. Zero artificial estimation.'
+            : report.data_source_notice}
         </div>
       </div>
 
@@ -275,7 +334,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                 <div className="flex items-start gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">
                   <Shield className="w-3.5 h-3.5 text-teal-700 shrink-0 mt-0.5" />
                   <span>
-                    <strong>Privacy Notice:</strong> Audio is processed ephemerally in server RAM and automatically purged immediately upon completion.
+                    <strong>Privacy Notice:</strong> Audio is processed ephemerally using client Web Audio & server DSP and is never used for training.
                   </span>
                 </div>
 
@@ -309,7 +368,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               <div className="mt-3 p-3 rounded bg-teal-50/80 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-2">
                 <div className="flex items-center justify-between text-xs text-teal-900 dark:text-teal-200">
                   <span className="font-semibold">
-                    {analysisStage === 'uploading' ? 'Streaming audio upload...' : 'Executing FFmpeg & SciPy DSP...'}
+                    {analysisStage === 'uploading' ? 'Streaming audio upload...' : 'Running Phase 2 DSP Analysis...'}
                   </span>
                   {onCancelAnalysis && (
                     <button
@@ -327,11 +386,11 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               </div>
             )}
 
-            {/* Error Message */}
+            {/* Beginner-friendly Error Message */}
             {errorMessage && (
               <div className="mt-3 p-2.5 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-300 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{errorMessage}</span>
+                <span>Audio analysis issue: {errorMessage}</span>
               </div>
             )}
 
@@ -369,6 +428,104 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
         audioFile={audioFile || selectedFile}
       />
 
+      {/* Clean 4-Metric Top Summary Strip */}
+      <section
+        aria-label="Mix Quick Diagnostics Summary"
+        className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+      >
+        {/* 1. Loudness */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="font-semibold uppercase tracking-wider">Loudness (LUFS)</span>
+            <Volume2 className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+          </div>
+          <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-2 font-mono">
+            {integratedLufs !== null && integratedLufs !== undefined ? `${integratedLufs.toFixed(1)} LUFS` : '—'}
+          </div>
+          <div className="flex items-center justify-between text-xs mt-2 text-zinc-600 dark:text-zinc-400">
+            <span>Target: {targetLufsText}</span>
+            <span
+              className={`font-semibold ${
+                lufsStatus === 'Optimal'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {lufsStatus}
+            </span>
+          </div>
+        </div>
+
+        {/* 2. Headroom / True Peak */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="font-semibold uppercase tracking-wider">Headroom / True Peak</span>
+            <Activity className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+          </div>
+          <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-2 font-mono">
+            {truePeak !== null && truePeak !== undefined ? `${truePeak.toFixed(1)} dBTP` : '—'}
+          </div>
+          <div className="flex items-center justify-between text-xs mt-2 text-zinc-600 dark:text-zinc-400">
+            <span>Ceiling: &lt; {targetTp.toFixed(1)} dBTP</span>
+            <span
+              className={`font-semibold ${
+                truePeakStatus === 'Safe Headroom'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-red-700 dark:text-red-400'
+              }`}
+            >
+              {truePeakStatus}
+            </span>
+          </div>
+        </div>
+
+        {/* 3. Low-End Mono Safety */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="font-semibold uppercase tracking-wider">Mono Compatibility</span>
+            <Layers className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+          </div>
+          <div className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-2 font-mono">
+            {monoSafetyText}
+          </div>
+          <div className="flex items-center justify-between text-xs mt-2 text-zinc-600 dark:text-zinc-400">
+            <span>Phase correlation</span>
+            <span
+              className={`font-semibold ${
+                monoSafetyText.includes('Safe')
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {monoSafetyText.includes('Safe') ? 'Passed' : 'Needs Check'}
+            </span>
+          </div>
+        </div>
+
+        {/* 4. Tonal Balance */}
+        <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-4 shadow-xs">
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="font-semibold uppercase tracking-wider">Tonal Balance</span>
+            <Sliders className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+          </div>
+          <div className="text-xl font-bold text-zinc-900 dark:text-zinc-100 mt-2">
+            {tonalStatus}
+          </div>
+          <div className="flex items-center justify-between text-xs mt-2 text-zinc-600 dark:text-zinc-400">
+            <span>Genre: {GENRE_LABELS[genre]}</span>
+            <span
+              className={`font-semibold ${
+                tonalStatus === 'Balanced Spectrum'
+                  ? 'text-emerald-700 dark:text-emerald-400'
+                  : 'text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {tonalStatus === 'Balanced Spectrum' ? 'Good' : 'Review'}
+            </span>
+          </div>
+        </div>
+      </section>
+
       {!consent.audio_analysis_consent ? (
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-8 text-center bg-zinc-50 dark:bg-zinc-900">
           <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
@@ -377,7 +534,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
         </div>
       ) : (
         <>
-          {/* Prioritized Action Summary for Beginners */}
+          {/* Streamlined Prioritized Action Plan (Max 3 Cards) */}
           <section
             aria-label="Prioritized Plain-Language Action Plan"
             className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6 shadow-xs"
@@ -385,217 +542,192 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-200 dark:border-zinc-800">
               <div>
                 <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-                  Prioritized Mix Action Plan ({report.recommendations.length} Steps)
+                  Prioritized Action Plan ({topRecommendations.length} Key Steps)
                 </h2>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Start with #1. Check off each step after verifying the change in your DAW bounce.
+                  Top technical recommendations ranked by impact. Complete each step in your DAW bounce.
                 </p>
               </div>
               <div className="text-xs font-mono tabular-nums text-zinc-600 dark:text-zinc-400">
-                Completed: {Object.values(checkedSteps).filter(Boolean).length} / {report.recommendations.length}
+                Completed: {Object.values(checkedSteps).filter(Boolean).length} / {topRecommendations.length}
               </div>
             </div>
 
-            <div className="divide-y divide-zinc-200 dark:divide-zinc-800 mt-2">
-              {report.recommendations.map((rec) => {
+            <div className="space-y-4 mt-4">
+              {topRecommendations.map((rec, idx) => {
                 const isDone = !!checkedSteps[rec.recommendation_id];
-                const isObjective = rec.classification === 'objective_technical';
+                const isExpanded = !!expandedCards[idx.toString()];
+                const linkedIssue = report.issues.find((i) => i.issue_id === rec.linked_issue_id);
+
+                // Priority Badge Color
+                const badgeLabel =
+                  rec.priority_rank === 1
+                    ? '🔴 High Priority'
+                    : rec.priority_rank === 2
+                    ? '🟡 Medium Priority'
+                    : '🟢 Optimization';
+
                 return (
-                  <div
+                  <article
                     key={rec.recommendation_id}
-                    className="py-4 flex flex-col md:flex-row md:items-center justify-between gap-4"
+                    className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-5 bg-zinc-50/50 dark:bg-zinc-950/40 transition-colors"
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 font-mono">
-                        <span>PRIORITY 0{rec.priority_rank}</span>
-                        <span aria-hidden="true">·</span>
-                        <span
-                          className={
-                            isObjective
-                              ? 'text-amber-800 dark:text-amber-400 font-semibold'
-                              : 'text-zinc-600 dark:text-zinc-400'
-                          }
-                        >
-                          {isObjective ? 'Objective Technical Issue' : 'Optional Stylistic Suggestion'}
-                        </span>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1.5 flex-1">
+                        <div className="flex items-center gap-2 text-xs font-mono">
+                          <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                            {badgeLabel}
+                          </span>
+                          <span aria-hidden="true" className="text-zinc-400">·</span>
+                          <span className="text-zinc-500 dark:text-zinc-400">
+                            {rec.classification === 'objective_technical'
+                              ? 'Technical Defect'
+                              : 'Stylistic Suggestion'}
+                          </span>
+                        </div>
+                        <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                          {rec.action_title}
+                        </h3>
+
+                        {/* 1. What was detected */}
+                        <div className="text-xs text-zinc-700 dark:text-zinc-300">
+                          <span className="font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider text-[10px] mr-1">
+                            WHAT WAS DETECTED:
+                          </span>
+                          <span>
+                            {linkedIssue?.learning_guide.what_was_detected || rec.beginner_summary}
+                          </span>
+                        </div>
+
+                        {/* 3. What to try in your DAW */}
+                        <div className="text-xs text-teal-800 dark:text-teal-300 font-medium">
+                          <span className="font-semibold text-teal-600 dark:text-teal-400 uppercase tracking-wider text-[10px] mr-1">
+                            WHAT TO TRY IN YOUR DAW:
+                          </span>
+                          <span>
+                            {linkedIssue?.learning_guide.what_to_try || rec.advanced_dsp_guidance}
+                          </span>
+                        </div>
                       </div>
-                      <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-                        {rec.action_title}
-                      </h3>
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                        {rec.beginner_summary}
-                      </p>
+
+                      <div className="flex flex-row md:flex-col items-end gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => toggleVerificationStep(rec.recommendation_id)}
+                          aria-pressed={isDone}
+                          className={`px-3.5 py-2 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
+                            isDone
+                              ? 'bg-teal-800 text-white border-teal-800 dark:bg-teal-600 dark:border-teal-600'
+                              : 'bg-white text-zinc-800 border-zinc-300 hover:bg-zinc-100 dark:bg-zinc-900 dark:text-zinc-200 dark:border-zinc-700'
+                          }`}
+                        >
+                          {isDone ? '✓ Verified in Revised Bounce' : 'Mark Change Verified'}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => toggleCardExpansion(idx.toString())}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-teal-800 dark:text-teal-400 hover:underline"
+                        >
+                          <span>{isExpanded ? 'Hide Details' : 'Show Why & How to Verify'}</span>
+                          {isExpanded ? (
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleVerificationStep(rec.recommendation_id)}
-                      aria-pressed={isDone}
-                      className={`px-3.5 py-2 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0 ${
-                        isDone
-                          ? 'bg-teal-800 text-white border-teal-800 dark:bg-teal-600 dark:border-teal-600'
-                          : 'bg-white text-zinc-800 border-zinc-300 hover:bg-zinc-50 dark:bg-zinc-950 dark:text-zinc-200 dark:border-zinc-700'
-                      }`}
-                    >
-                      {isDone ? 'Verified in Revised Bounce' : 'Mark Change Verified'}
-                    </button>
-                  </div>
+
+                    {/* Collapsible Accordion: Why It Matters & How to Verify */}
+                    {isExpanded && linkedIssue && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 mt-4 border-t border-zinc-200 dark:border-zinc-800 text-xs">
+                        <div className="bg-white dark:bg-zinc-900 p-3.5 rounded border border-zinc-200 dark:border-zinc-800">
+                          <h4 className="font-semibold uppercase tracking-wider text-[10px] text-zinc-500 dark:text-zinc-400">
+                            2. WHY IT MATTERS
+                          </h4>
+                          <p className="text-zinc-800 dark:text-zinc-200 mt-1 leading-relaxed">
+                            {linkedIssue.learning_guide.why_it_matters}
+                          </p>
+                        </div>
+
+                        <div className="bg-white dark:bg-zinc-900 p-3.5 rounded border border-zinc-200 dark:border-zinc-800">
+                          <h4 className="font-semibold uppercase tracking-wider text-[10px] text-teal-700 dark:text-teal-400">
+                            4. HOW TO VERIFY THE CHANGE
+                          </h4>
+                          <p className="text-zinc-800 dark:text-zinc-200 mt-1 leading-relaxed">
+                            {linkedIssue.learning_guide.how_to_verify}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </article>
                 );
               })}
             </div>
           </section>
 
-          {/* Group 1: Objective Technical Findings (4-Part Learning Cards) */}
-          <section aria-label="Objective Technical Findings" className="space-y-4">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-700 dark:text-amber-400" />
-                  <span>Objective Technical Findings ({objectiveIssues.length})</span>
-                </h2>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-                  Rule 3 & 8: Measurable technical issues (clipping, headroom, or phase cancellation) that should be corrected regardless of genre preference.
-                </p>
-              </div>
-            </div>
+          {/* Collapsible Drawer: Optional Genre & Stylistic Notes */}
+          {stylisticIssues.length > 0 && (
+            <section
+              aria-label="Optional Stylistic Notes"
+              className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 shadow-xs overflow-hidden"
+            >
+              <button
+                type="button"
+                onClick={() => setShowStylisticNotes((s) => !s)}
+                className="w-full flex items-center justify-between p-5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-800/50 transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Sliders className="w-4 h-4 text-teal-700 dark:text-teal-400" />
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    View Optional Genre &amp; Stylistic Notes for {GENRE_LABELS[genre]} ({stylisticIssues.length})
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <span>{showStylisticNotes ? 'Collapse' : 'Expand'}</span>
+                  {showStylisticNotes ? (
+                    <ChevronUp className="w-4 h-4" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                </div>
+              </button>
 
-            <div className="grid grid-cols-1 gap-5">
-              {objectiveIssues.map((issue) => (
-                <article
-                  key={issue.issue_id}
-                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6 shadow-xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-100 dark:border-zinc-800">
-                    <div>
-                      <div className="flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                        <span className="text-amber-800 dark:text-amber-400 font-semibold uppercase">
-                          {issue.severity}
-                        </span>
-                        <span aria-hidden="true">·</span>
-                        <span>OBJECTIVE TECHNICAL</span>
-                        <span aria-hidden="true">·</span>
-                        <span>
-                          AFFECTED TIME:{' '}
-                          {issue.timestamps
-                            .map((t) => `${formatTimecode(t.start_sec)}–${formatTimecode(t.end_sec)}`)
-                            .join(', ')}
-                        </span>
-                      </div>
-                      <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-                        {issue.title}
-                      </h3>
-                    </div>
-
-                    {issue.timestamps[0] && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveIssueId(issue.issue_id);
-                          setActiveTimestamp(issue.timestamps[0]);
-                        }}
-                        className="text-xs px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 font-mono text-teal-800 dark:text-teal-400"
+              {showStylisticNotes && (
+                <div className="p-5 pt-0 border-t border-zinc-200 dark:border-zinc-800 space-y-4">
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Rule 8: Subjective creative observations. These are optional artistic choices to evaluate by ear rather than technical mix defects.
+                  </p>
+                  <div className="grid grid-cols-1 gap-4">
+                    {stylisticIssues.map((issue) => (
+                      <div
+                        key={issue.issue_id}
+                        className="p-4 rounded border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-xs space-y-2"
                       >
-                        Audition in Waveform →
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        1. What was detected
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.what_was_detected}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        2. Why it matters
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.why_it_matters}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-400">
-                        3. What to try in your DAW
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.what_to_try}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-400">
-                        4. How to verify the change
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.how_to_verify}
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          {/* Group 2: Subjective Stylistic Notes (Kept Strictly Separate per Rule 8) */}
-          <section aria-label="Subjective Stylistic Considerations" className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-teal-700 dark:text-teal-400" />
-                <span>Subjective Stylistic Notes for {GENRE_LABELS[genre]} ({stylisticIssues.length})</span>
-              </h2>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-                Rule 8: Kept strictly separate from technical warnings. These are creative tonal/dynamic choices to evaluate by ear.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5">
-              {stylisticIssues.map((issue) => (
-                <article
-                  key={issue.issue_id}
-                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50/60 dark:bg-zinc-900/60 p-6 shadow-xs"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-200 dark:border-zinc-800">
-                    <div>
-                      <div className="flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                        <span>CREATIVE / STYLISTIC OBSERVATION</span>
-                        <span aria-hidden="true">·</span>
-                        <span>
-                          SECTION:{' '}
-                          {issue.timestamps
-                            .map((t) => `${formatTimecode(t.start_sec)}–${formatTimecode(t.end_sec)}`)
-                            .join(', ')}
-                        </span>
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-semibold text-zinc-900 dark:text-zinc-100 text-sm">
+                            {issue.title}
+                          </h4>
+                          <span className="font-mono text-[11px] text-zinc-500">
+                            {issue.timestamps
+                              .map((t) => `${formatTimecode(t.start_sec)}–${formatTimecode(t.end_sec)}`)
+                              .join(', ')}
+                          </span>
+                        </div>
+                        <p className="text-zinc-700 dark:text-zinc-300">
+                          <strong>Observation:</strong> {issue.learning_guide.what_was_detected}
+                        </p>
+                        <p className="text-teal-800 dark:text-teal-300">
+                          <strong>Artistic Alternative:</strong> {issue.learning_guide.what_to_try}
+                        </p>
                       </div>
-                      <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-                        {issue.title}
-                      </h3>
-                    </div>
+                    ))}
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        Creative Observation
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1">
-                        {issue.learning_guide.what_was_detected}
-                      </p>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-400">
-                        Artistic Alternative
-                      </h4>
-                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1">
-                        {issue.learning_guide.what_to_try}
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </section>
+                </div>
+              )}
+            </section>
+          )}
         </>
       )}
     </div>

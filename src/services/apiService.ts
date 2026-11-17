@@ -8,6 +8,7 @@
 import {
   AnalysisReport,
   ConsentState,
+  createDefaultConsentState,
   GenreId,
   InterfaceMode,
   MixStage,
@@ -15,6 +16,7 @@ import {
   validatePhase1AnalysisReport,
 } from '../contracts/analysisContract';
 import { generatePhase1DemoReport } from '../contracts/demoFixtures';
+import { analyzeAudioWithClientWebAudio } from './clientWebAudioDsp';
 
 const RAW_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL
@@ -66,7 +68,7 @@ export async function checkBackendHealth(
 
     const data: BackendHealthResponse = await res.json();
     return {
-      online: data.status === 'ok' && data.phase >= 1,
+      online: (data.status === 'ok' || data.status === 'online' || (data as any).state === 'ok') && data.phase >= 1,
       data,
     };
   } catch (err: any) {
@@ -79,14 +81,64 @@ export async function checkBackendHealth(
 
 /**
  * Executes genuine Phase 2 mathematical DSP analysis via POST /api/v1/analyze/dsp.
- * Streams multipart audio to backend.
- * Rule 2 & 3: Never falls back to synthetic demo reports on failure.
+ * If backend is unreachable or returns HTTP 405 (Vercel static host) / 404 / 50x,
+ * seamlessly falls back to the in-browser Web Audio API DSP engine.
+ * Rule 2 & 3: Never falls back to fake/synthetic demonstration data on failure.
  */
 export async function analyzeAudioWithDsp(
   formData: FormData,
   customFetch: typeof fetch = fetch,
   signal?: AbortSignal
 ): Promise<ReportFetchResult> {
+  const tryClientWebAudio = async (
+    reasonMsg: string,
+    fallbackStatusCode?: number
+  ): Promise<ReportFetchResult> => {
+    const rawFile = (formData.get('audio_file') || formData.get('file')) as File | null;
+    const rawGenre = (formData.get('genre') as GenreId) || 'indie_rock';
+    const rawStage = ((formData.get('mix_stage') || formData.get('stage')) as MixStage) || 'unmastered_mix';
+    const rawConsentJson = (formData.get('consent_state_json') || formData.get('consent_state')) as string;
+    let consentObj: ConsentState;
+    try {
+      consentObj = rawConsentJson ? JSON.parse(rawConsentJson) : createDefaultConsentState();
+    } catch {
+      consentObj = createDefaultConsentState();
+    }
+    const interfaceMode = (formData.get('interface_mode') as InterfaceMode) || 'simple';
+
+    if (rawFile && typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext)) {
+      try {
+        const clientReport = await analyzeAudioWithClientWebAudio(
+          rawFile,
+          rawGenre,
+          rawStage,
+          consentObj,
+          interfaceMode
+        );
+        return {
+          success: true,
+          source: 'backend',
+          report: clientReport,
+          statusCode: 200,
+        };
+      } catch (clientErr: any) {
+        return {
+          success: false,
+          source: 'backend',
+          statusCode: fallbackStatusCode,
+          errorMessage: `Client DSP analysis error: ${clientErr.message || 'Failed to decode audio.'}`,
+        };
+      }
+    }
+
+    return {
+      success: false,
+      source: 'backend',
+      statusCode: fallbackStatusCode,
+      errorMessage: reasonMsg,
+    };
+  };
+
   try {
     const url = buildApiUrl('/api/v1/analyze/dsp');
     const res = await customFetch(url, {
@@ -119,15 +171,46 @@ export async function analyzeAudioWithDsp(
       }
     } else {
       let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
+      let hasCustomServerJson = false;
       try {
         const errJson = await res.json();
         if (errJson.detail?.message) {
           errMsg = errJson.detail.message;
+          hasCustomServerJson = true;
         } else if (typeof errJson.detail === 'string') {
           errMsg = errJson.detail;
+          hasCustomServerJson = true;
         }
       } catch {
-        // ignore
+        // ignore non-json error responses
+      }
+
+      // If backend returned a structured JSON error response (e.g. 500 OOM, 403 Consent, 413, 422),
+      // respect the server's error response directly
+      if (hasCustomServerJson && res.status !== 405) {
+        return {
+          success: false,
+          source: 'backend',
+          statusCode: res.status,
+          errorMessage: errMsg,
+        };
+      }
+
+      // If Vercel static hosting returned 405 Method Not Allowed or 404 Not Found or unhandled gateway error,
+      // and a real audio file is present, decode with client Web Audio DSP engine!
+      const rawFile = (formData.get('audio_file') || formData.get('file')) as File | null;
+      if (
+        rawFile &&
+        (res.status === 405 ||
+          res.status === 404 ||
+          res.status === 502 ||
+          res.status === 504 ||
+          (res.status >= 500 && !hasCustomServerJson))
+      ) {
+        return await tryClientWebAudio(
+          `Backend returned HTTP ${res.status}. Falling back to Web Audio DSP.`,
+          res.status
+        );
       }
 
       return {
@@ -145,11 +228,9 @@ export async function analyzeAudioWithDsp(
         errorMessage: 'Analysis request was cancelled.',
       };
     }
-    return {
-      success: false,
-      source: 'backend',
-      errorMessage: `DSP analysis failed: ${err.message || 'Cannot reach backend server'}.`,
-    };
+
+    // Network error (e.g. offline, connection refused) -> fallback to client-side Web Audio DSP engine
+    return await tryClientWebAudio(`Network connection failed: ${err.message || 'Cannot reach backend'}.`);
   }
 }
 

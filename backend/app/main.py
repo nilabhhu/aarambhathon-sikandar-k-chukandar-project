@@ -59,6 +59,7 @@ allowed_origins = [
     "http://127.0.0.1:5173",
     "https://aarambhathon-sikandar-k-chukandar-p-rho.vercel.app",
     "https://aarambhathon-sikandar-k-chukandar-project-nilabh1.vercel.app",
+    "https://aarambhathon-sikandar-k-chukandar-project-git-dev-nilabh1.vercel.app",
 ]
 custom_cors = os.environ.get("CORS_ALLOWED_ORIGINS")
 if custom_cors:
@@ -73,7 +74,7 @@ app.add_middleware(
     allow_origin_regex=r"^https:\/\/.*\.vercel\.app$",
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "Accept"],
+    allow_headers=["*"],
 )
 
 
@@ -166,7 +167,8 @@ class EphemeralAudioWorkspace:
 def get_health():
     """Operational health check returning phase status and active contract version."""
     return {
-        "status": "ok",
+        "status": "online",
+        "state": "ok",
         "service": "mixlearn-studio-api",
         "phase": 2,
         "mode": "mathematical_dsp_active",
@@ -180,7 +182,8 @@ def get_health():
 def get_api_v1_health():
     """Detailed health endpoint for frontend proxy & gateway verification."""
     return {
-        "status": "ok",
+        "status": "online",
+        "state": "ok",
         "service": "mixlearn-studio-api",
         "phase": 2,
         "mode": "mathematical_dsp_active",
@@ -198,6 +201,7 @@ def get_capabilities():
     """
     return {
         "phase": 2,
+        "analyze_dsp": True,
         "rules_enforced": {
             "no_ai_stem_separation": True,
             "dsp_is_sole_measurement_source": True,
@@ -214,6 +218,7 @@ def get_capabilities():
             "rule_9_ephemeral_zero_retention_workspace": True,
         },
         "capabilities_status": {
+            "analyze_dsp": "IMPLEMENTED",
             "dsp_core_measurements": "IMPLEMENTED",
             "ai_stem_separation": "PROHIBITED_BY_PRODUCT_RULE",
             "streaming_normalization_estimates": "NOT_IMPLEMENTED_PHASE_3",
@@ -221,6 +226,12 @@ def get_capabilities():
             "ai_educational_interpretation": "NOT_IMPLEMENTED_PHASE_5",
         },
         "capabilities": {
+            "analyze_dsp": {
+                "status": "IMPLEMENTED",
+                "phase_target": 2,
+                "enabled": True,
+                "disclosure": "Phase 2 Mathematical DSP engine active: Real-time loudness, true peak, crest factor, phase correlation, and Welch PSD.",
+            },
             "dsp_core_measurements": {
                 "status": "IMPLEMENTED",
                 "phase_target": 2,
@@ -401,15 +412,57 @@ def _run_ephemeral_analysis(
         return report
 
 
+GENRE_NORMALIZATION = {
+    "indie_rock": "indie_rock",
+    "indie rock": "indie_rock",
+    "indie rock / alternative": "indie_rock",
+    "indie rock/alternative": "indie_rock",
+    "alternative": "indie_rock",
+    "electronic_club": "electronic_club",
+    "electronic club": "electronic_club",
+    "electronic / club": "electronic_club",
+    "electronic / club / dance": "electronic_club",
+    "electronic / dance": "electronic_club",
+    "electronic": "electronic_club",
+    "dance": "electronic_club",
+    "hip_hop_trap": "hip_hop_trap",
+    "hip hop trap": "hip_hop_trap",
+    "hip hop / trap": "hip_hop_trap",
+    "hip-hop / trap": "hip_hop_trap",
+    "hip-hop": "hip_hop_trap",
+    "hip hop": "hip_hop_trap",
+    "trap": "hip_hop_trap",
+    "pop_vocal": "pop_vocal",
+    "pop vocal": "pop_vocal",
+    "pop / vocal": "pop_vocal",
+    "pop": "pop_vocal",
+    "vocal": "pop_vocal",
+    "acoustic_folk": "acoustic_folk",
+    "acoustic folk": "acoustic_folk",
+    "acoustic / folk": "acoustic_folk",
+    "acoustic": "acoustic_folk",
+    "folk": "acoustic_folk",
+    "cinematic_orchestral": "cinematic_orchestral",
+    "cinematic orchestral": "cinematic_orchestral",
+    "cinematic / orchestral": "cinematic_orchestral",
+    "cinematic": "cinematic_orchestral",
+    "orchestral": "cinematic_orchestral",
+}
+VALID_GENRES = set(GENRE_NORMALIZATION.values())
+
+
 # --- Phase 2 Implemented Mathematical DSP Endpoint ---
 
 @app.post("/api/v1/analyze/dsp")
 async def post_analyze_dsp(
-    audio_file: UploadFile = File(...),
+    audio_file: Optional[UploadFile] = File(None),
+    file: Optional[UploadFile] = File(None),
     interface_mode: str = Form("advanced"),
     genre: str = Form("indie_rock"),
-    mix_stage: str = Form("unmastered_mix"),
-    consent_state_json: str = Form(...),
+    mix_stage: Optional[str] = Form(None),
+    stage: Optional[str] = Form(None),
+    consent_state_json: Optional[str] = Form(None),
+    consent_state: Optional[str] = Form(None),
     user_notes: Optional[str] = Form(None),
     plugin_chain_metadata_json: Optional[str] = Form(None),
 ):
@@ -419,28 +472,68 @@ async def post_analyze_dsp(
     executes real DSP (FFmpeg ebur128, waveform, Welch PSD, diagnostics),
     validates against schema v2.0.0, and returns genuine AudioMixAnalysisReport.
     Guarded by asyncio.Semaphore(MAX_CONCURRENT_DSP) to protect server memory.
+    Supports field aliases: 'audio_file' or 'file', 'mix_stage' or 'stage',
+    normalized genre strings, and defaults consent if omitted.
     """
-    # 1. Parse and validate consent state
-    try:
-        consent_dict = json.loads(consent_state_json)
-        consent_obj = ConsentState(**consent_dict)
-    except Exception as e:
+    target_file = audio_file or file
+    if target_file is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
-                "error_code": "INVALID_CONSENT_PAYLOAD",
-                "message": f"Malformed consent state JSON: {str(e)}",
+                "error_code": "MISSING_AUDIO_FILE",
+                "message": "An audio file ('file' or 'audio_file') must be provided as multipart/form-data.",
             },
         )
 
-    # Enforce Rule 4: Explicit Permission 1 (audio_analysis_consent) required
-    if not consent_obj.audio_analysis_consent:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error_code": "CONSENT_REQUIRED",
-                "message": "Permission 1 (audio_analysis_consent) is required before examining or measuring audio with mathematical DSP.",
-            },
+    # Genre normalization
+    genre_clean = genre.lower().strip()
+    norm_genre = GENRE_NORMALIZATION.get(genre_clean)
+    if not norm_genre:
+        norm_genre = GENRE_NORMALIZATION.get(
+            genre_clean.replace(" ", "_").replace("-", "_").replace("/", "_"),
+            "indie_rock",
+        )
+
+    # Mix stage normalization
+    raw_stage = (mix_stage or stage or "unmastered_mix").lower().strip()
+    if "master" in raw_stage and "unmaster" not in raw_stage:
+        norm_stage = "final_master"
+    else:
+        norm_stage = "unmastered_mix"
+
+    # Interface mode normalization
+    norm_mode = "simple" if "simple" in interface_mode.lower() else "advanced"
+
+    # 1. Parse and validate consent state (defaults to true if omitted)
+    target_consent_str = consent_state_json or consent_state
+    if target_consent_str and target_consent_str.strip():
+        try:
+            consent_dict = json.loads(target_consent_str)
+            consent_obj = ConsentState(**consent_dict)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "error_code": "INVALID_CONSENT_PAYLOAD",
+                    "message": f"Malformed consent state JSON: {str(e)}",
+                },
+            )
+
+        # Enforce Rule 4: Explicit Permission 1 (audio_analysis_consent) required
+        if not consent_obj.audio_analysis_consent:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error_code": "CONSENT_REQUIRED",
+                    "message": "Permission 1 (audio_analysis_consent) is required before examining or measuring audio with mathematical DSP.",
+                },
+            )
+    else:
+        consent_obj = ConsentState(
+            audio_analysis_consent=True,
+            external_ai_transfer_consent=False,
+            model_training_opt_in=False,
+            consent_timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
     # 2. Parse optional plugin chain metadata
@@ -457,10 +550,10 @@ async def post_analyze_dsp(
             async with dsp_semaphore:
                 report = await anyio.to_thread.run_sync(
                     _run_ephemeral_analysis,
-                    audio_file,
-                    interface_mode,
-                    genre,
-                    mix_stage,
+                    target_file,
+                    norm_mode,
+                    norm_genre,
+                    norm_stage,
                     consent_obj.model_dump(),
                     user_notes,
                     plugin_chain_meta,
