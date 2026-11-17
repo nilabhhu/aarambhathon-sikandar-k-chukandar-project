@@ -1,9 +1,8 @@
 # Vercel Ignore File
-backend/.venv/
-backend/__pycache__/
-__pycache__/
-*.pyc
+backend/
 node_modules/
 .git/
 .github/
 dist/
+contracts/
+scripts/
