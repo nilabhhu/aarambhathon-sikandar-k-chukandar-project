@@ -56,3 +56,4 @@ Thumbs.db
 
 # Browser Testing Profiles
 .edge-profile/
+.vercel
