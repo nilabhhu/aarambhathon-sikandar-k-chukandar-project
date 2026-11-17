@@ -3,6 +3,7 @@ Waveform and time-domain DSP analysis for MixLearn Studio Phase 2.
 Performs streaming block-based sample peak detection, contiguous clipping event counts,
 global RMS, dynamic crest factor, silence-gated stereo phase correlation,
 orthonormal mid/side stereo width index, and uniform timeline series generation.
+Never falsely assumes perfect stereo correlation (+1.0) on silence or unmeasured signal.
 """
 
 import math
@@ -18,10 +19,11 @@ def compute_waveform_metrics(
     duration_seconds: float,
     sample_rate_hz: int,
     channels: int,
-    loudness_frames: Optional[List[Tuple[float, float, float]]] = None,
+    loudness_frames: Optional[List[Tuple[float, Optional[float], Optional[float]]]] = None,
 ) -> Dict[str, Any]:
     """
     Computes time-domain waveform measurements and timeline buckets via chunked streaming.
+    Properly handles silent, mono, and unmeasured audio without inventing values.
     """
     block_size = 65536
     total_samples = 0
@@ -36,7 +38,7 @@ def compute_waveform_metrics(
     sum_sq_mid = 0.0
     sum_sq_side = 0.0
 
-    # Timeline bucket setup (max 240 buckets)
+    # Timeline bucket setup (max 240 buckets, min 12 for short files)
     num_buckets = min(240, max(12, int(duration_seconds / 1.0)))
     bucket_duration = duration_seconds / float(num_buckets)
     samples_per_bucket = max(1, int(round(bucket_duration * sample_rate_hz)))
@@ -52,14 +54,11 @@ def compute_waveform_metrics(
     bucket_sum_rr = np.zeros(num_buckets, dtype=np.float64)
     bucket_sum_lr = np.zeros(num_buckets, dtype=np.float64)
 
-    # Stereo correlation tracking across 400ms windows
-    window_400ms = int(0.4 * sample_rate_hz)
-    correlations_400ms: List[float] = []
-
     # Stream through blocks
     current_sample_idx = 0
     with sf.SoundFile(str(decoded_wav_path), mode="r") as snd:
-        channels = snd.channels
+        actual_channels = snd.channels
+        channels = actual_channels
         while True:
             block = snd.read(frames=block_size, dtype="float32", always_2d=True)
             if block.shape[0] == 0:
@@ -119,26 +118,31 @@ def compute_waveform_metrics(
 
             current_sample_idx += n_frames
 
+    unavailable_reasons: Dict[str, str] = {}
+
     # Global Peak dBFS
-    if global_max_abs <= 1e-12:
+    is_signal_silent = global_max_abs <= 1e-9
+    if is_signal_silent:
         sample_peak_max_dbfs = -120.0
     else:
         sample_peak_max_dbfs = round(20.0 * math.log10(global_max_abs), 2)
 
     # Global RMS dBFS
-    if total_samples > 0:
+    if total_samples > 0 and not is_signal_silent:
         mean_sq = sum_sq_total / (total_samples * channels)
         rms_linear = math.sqrt(max(1e-12, mean_sq))
         global_rms_dbfs = round(20.0 * math.log10(rms_linear), 2)
     else:
         global_rms_dbfs = -120.0
-        rms_linear = 1e-6
 
     # Dynamic Crest Factor
-    crest_factor_db = round(max(0.0, sample_peak_max_dbfs - global_rms_dbfs), 2)
+    if is_signal_silent:
+        crest_factor_db: Optional[float] = None
+        unavailable_reasons["crest_factor"] = "audio_signal_silent_or_below_gating_threshold"
+    else:
+        crest_factor_db = round(max(0.0, sample_peak_max_dbfs - global_rms_dbfs), 2)
 
     # Stereo Phase Correlation & Width
-    unavailable_reasons: Dict[str, str] = {}
     phase_correlation_mean: Optional[float] = None
     phase_correlation_min: Optional[float] = None
     stereo_width_index: Optional[float] = None
@@ -147,6 +151,10 @@ def compute_waveform_metrics(
         unavailable_reasons["phase_correlation_mean"] = "mono_input_no_stereo_field"
         unavailable_reasons["phase_correlation_min"] = "mono_input_no_stereo_field"
         unavailable_reasons["stereo_width_index"] = "mono_input_no_stereo_field"
+    elif is_signal_silent:
+        unavailable_reasons["phase_correlation_mean"] = "audio_signal_silent_or_below_gating_threshold"
+        unavailable_reasons["phase_correlation_min"] = "audio_signal_silent_or_below_gating_threshold"
+        unavailable_reasons["stereo_width_index"] = "audio_signal_silent_or_below_gating_threshold"
     else:
         # Calculate correlation per bucket
         bucket_correlations: List[float] = []
@@ -158,24 +166,33 @@ def compute_waveform_metrics(
             b_rms_dbfs = 20.0 * math.log10(b_rms)
             if b_rms_dbfs >= -60.0:  # Silence gate
                 denom = math.sqrt(max(1e-12, ll * rr))
-                corr = max(-1.0, min(1.0, lr / denom))
-                bucket_correlations.append(corr)
+                if denom > 1e-9:
+                    corr = max(-1.0, min(1.0, lr / denom))
+                    bucket_correlations.append(corr)
 
         if bucket_correlations:
             phase_correlation_mean = round(float(np.mean(bucket_correlations)), 2)
             phase_correlation_min = round(float(np.min(bucket_correlations)), 2)
         else:
-            phase_correlation_mean = 1.0
-            phase_correlation_min = 1.0
+            # Silence or insufficient signal across all windows:
+            # DO NOT invent +1.0! Mark explicitly unavailable
+            phase_correlation_mean = None
+            phase_correlation_min = None
+            unavailable_reasons["phase_correlation_mean"] = "audio_signal_silent_or_below_gating_threshold"
+            unavailable_reasons["phase_correlation_min"] = "audio_signal_silent_or_below_gating_threshold"
 
         # Orthonormal Mid/Side Stereo Width Index
-        rms_mid = math.sqrt(max(1e-12, sum_sq_mid / max(1, total_samples)))
-        rms_side = math.sqrt(max(1e-12, sum_sq_side / max(1, total_samples)))
-        width_ratio = (math.sqrt(2.0) * rms_side) / (rms_mid + rms_side + 1e-12)
-        stereo_width_index = round(float(min(100.0, max(0.0, width_ratio * 100.0))), 1)
+        rms_mid = math.sqrt(max(0.0, sum_sq_mid / max(1, total_samples)))
+        rms_side = math.sqrt(max(0.0, sum_sq_side / max(1, total_samples)))
+        denom = rms_mid + rms_side
+        if denom > 1e-9:
+            width_ratio = (math.sqrt(2.0) * rms_side) / denom
+            stereo_width_index = round(float(min(100.0, max(0.0, width_ratio * 100.0))), 1)
+        else:
+            stereo_width_index = None
+            unavailable_reasons["stereo_width_index"] = "audio_signal_silent_or_below_gating_threshold"
 
     # Assemble timeline buckets
-    # Pre-index loudness frames by timestamp if available
     loudness_lookup = []
     if loudness_frames:
         loudness_lookup = sorted(loudness_frames, key=lambda x: x[0])
@@ -184,9 +201,11 @@ def compute_waveform_metrics(
         if not loudness_lookup:
             return None, None
         best = min(loudness_lookup, key=lambda x: abs(x[0] - t))
-        m_val = None if best[1] <= -100.0 else round(best[1], 1)
-        s_val = None if best[2] <= -100.0 else round(best[2], 1)
-        return m_val, s_val
+        m_val = best[1]
+        s_val = best[2]
+        m_ret = None if m_val is None or m_val <= -100.0 else round(m_val, 1)
+        s_ret = None if s_val is None or s_val <= -100.0 else round(s_val, 1)
+        return m_ret, s_ret
 
     buckets: List[Dict[str, Any]] = []
     for b in range(num_buckets):
@@ -203,13 +222,14 @@ def compute_waveform_metrics(
         m_lufs, s_lufs = find_nearest_lufs(mid_t)
 
         b_corr: Optional[float] = None
-        if channels == 2:
+        if channels == 2 and not is_signal_silent:
             ll = bucket_sum_ll[b]
             rr = bucket_sum_rr[b]
             lr = bucket_sum_lr[b]
             if b_rms_dbfs >= -60.0:
                 denom = math.sqrt(max(1e-12, ll * rr))
-                b_corr = round(float(max(-1.0, min(1.0, lr / denom))), 2)
+                if denom > 1e-9:
+                    b_corr = round(float(max(-1.0, min(1.0, lr / denom))), 2)
 
         buckets.append({
             "start_sec": start_sec,

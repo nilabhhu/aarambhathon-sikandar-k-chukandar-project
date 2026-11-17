@@ -6,8 +6,18 @@ import {
   MixStage,
 } from '../contracts/analysisContract';
 import { GENRE_LABELS, MIX_STAGE_LABELS } from '../contracts/demoFixtures';
-import { formatTimecode } from './WaveformInspector';
-import { Upload, CheckCircle2, AlertCircle, Sliders, ArrowRight } from 'lucide-react';
+import { WaveformInspector, formatTimecode } from './WaveformInspector';
+import {
+  Upload,
+  CheckCircle2,
+  AlertCircle,
+  Sliders,
+  ArrowRight,
+  Shield,
+  X,
+  Play,
+  RotateCcw,
+} from 'lucide-react';
 
 interface SimpleMixCheckViewProps {
   report: AnalysisReport;
@@ -17,7 +27,7 @@ interface SimpleMixCheckViewProps {
   consent: ConsentState;
   onChangeGenre: (genre: GenreId) => void;
   onChangeMixStage: (stage: MixStage) => void;
-  onUploadFileMetadata: (meta: {
+  onUploadFileMetadata?: (meta: {
     filename: string;
     fileSize: number;
     durationSec?: number;
@@ -25,6 +35,14 @@ interface SimpleMixCheckViewProps {
   }) => void;
   onAnalyzeAudioFile?: (file: File) => void;
   onSwitchToAdvanced: () => void;
+  audioFile?: File | null;
+  selectedFile?: File | null;
+  onSelectFile?: (file: File) => void;
+  onClearFile?: () => void;
+  analysisStage?: 'idle' | 'selected' | 'uploading' | 'analyzing' | 'complete' | 'failed';
+  errorMessage?: string | null;
+  onCancelAnalysis?: () => void;
+  onLoadDemonstration?: () => void;
 }
 
 export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
@@ -35,30 +53,41 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   consent,
   onChangeGenre,
   onChangeMixStage,
-  onUploadFileMetadata,
   onAnalyzeAudioFile,
   onSwitchToAdvanced,
+  audioFile = null,
+  selectedFile = null,
+  onSelectFile,
+  onClearFile,
+  analysisStage = 'idle',
+  errorMessage = null,
+  onCancelAnalysis,
+  onLoadDemonstration,
 }) => {
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
-  const [uploadStatusNote, setUploadStatusNote] = useState<string | null>(null);
+  const [activeIssueId, setActiveIssueId] = useState<string | null>(report.issues[0]?.issue_id ?? null);
+  const [activeTimestamp, setActiveTimestamp] = useState<{
+    start_sec: number;
+    end_sec: number;
+    label: string;
+  } | null>(report.issues[0]?.timestamps[0] ?? null);
+  const [monoMode, setMonoMode] = useState(false);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    if (onAnalyzeAudioFile) {
-      setUploadStatusNote(`Analyzing "${file.name}" via real Mathematical DSP...`);
+    if (onSelectFile) {
+      onSelectFile(file);
+    } else if (onAnalyzeAudioFile) {
       onAnalyzeAudioFile(file);
-      return;
     }
+  };
 
-    onUploadFileMetadata({
-      filename: file.name,
-      fileSize: file.size,
-    });
-    setUploadStatusNote(
-      `Loaded file metadata for "${file.name}" (${(file.size / (1024 * 1024)).toFixed(2)} MB). Audio was NOT analyzed (Real DSP analysis is scheduled for Phase 2). Displaying Phase 1 Demonstration Contract Findings.`
-    );
+  const handleTriggerAnalysis = () => {
+    const fileToAnalyze = selectedFile || audioFile;
+    if (fileToAnalyze && onAnalyzeAudioFile) {
+      onAnalyzeAudioFile(fileToAnalyze);
+    }
   };
 
   const toggleVerificationStep = (id: string) => {
@@ -72,16 +101,28 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
     (i) => i.classification === 'subjective_stylistic'
   );
 
+  const isProcessing = analysisStage === 'uploading' || analysisStage === 'analyzing';
+
   return (
     <div className="space-y-8">
       {/* Mandatory Demonstration Data Disclosure Banner */}
       <div
         role="status"
         data-testid="demo-data-banner-simple"
-        className="border border-teal-800/30 dark:border-teal-500/30 bg-teal-50/70 dark:bg-teal-950/30 rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3"
+        className={`border rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3 ${
+          !report.is_demonstration_data
+            ? 'border-emerald-700/30 bg-emerald-50/70 dark:bg-emerald-950/30 dark:border-emerald-500/30'
+            : 'border-teal-800/30 dark:border-teal-500/30 bg-teal-50/70 dark:bg-teal-950/30'
+        }`}
       >
         <div className="text-xs text-zinc-800 dark:text-zinc-200">
-          <span className="font-mono font-semibold text-teal-900 dark:text-teal-300">
+          <span
+            className={`font-mono font-semibold ${
+              !report.is_demonstration_data
+                ? 'text-emerald-900 dark:text-emerald-300'
+                : 'text-teal-900 dark:text-teal-300'
+            }`}
+          >
             {!report.is_demonstration_data
               ? '[MATHEMATICAL DSP ANALYSIS · REAL AUDIO MEASUREMENTS]'
               : reportSource === 'backend'
@@ -91,16 +132,16 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
           {report.data_source_notice}
         </div>
         <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
-          <span>provenance: {reportSource === 'backend' ? 'fastapi' : 'offline-local'}</span>
+          <span>provenance: {report.is_demonstration_data ? (reportSource === 'backend' ? 'fastapi-fixture' : 'offline-local') : 'real-dsp-engine'}</span>
           <span aria-hidden="true">·</span>
           <span>schema_version: {report.schema_version}</span>
         </div>
       </div>
 
-      {/* Step 1: Beginner Input Context Controls */}
+      {/* Step 1 & 2 & 3: Input Context Controls */}
       <section
         aria-label="Simple Mix Check Configuration"
-        className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6"
+        className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6 shadow-xs"
       >
         <div className="flex flex-wrap items-baseline justify-between gap-4 pb-5 border-b border-zinc-200 dark:border-zinc-800">
           <div>
@@ -111,7 +152,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               Simple Mix Check
             </h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1">
-              Select your genre and mix stage, upload your bounce, and follow step-by-step plain-language fixes without complex graphs.
+              Select your genre and mix stage, choose your audio bounce, and receive plain-language guidance without confusing graphs.
             </p>
           </div>
           <button
@@ -119,7 +160,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             onClick={onSwitchToAdvanced}
             className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-800 dark:text-teal-400 hover:underline whitespace-nowrap shrink-0"
           >
-            <span>Need full LUFS, phase & spectral metrics? Switch to Advanced Mix Check</span>
+            <span>Need full LUFS, true peak & spectral meters? Switch to Advanced Mix Check</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -146,7 +187,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               ))}
             </select>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2">
-              Sets tonal and dynamic context for stylistic guidance without hiding technical clipping or phase errors.
+              Sets tonal and dynamic targets without masking technical clipping or phase defects.
             </p>
           </div>
 
@@ -185,26 +226,29 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               })}
             </div>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-2 font-mono tabular-nums">
-              Target: {MIX_STAGE_LABELS[mixStage].headroomTarget}
+              Headroom target: {MIX_STAGE_LABELS[mixStage].headroomTarget}
             </p>
           </div>
 
-          {/* 3. Upload Song */}
+          {/* 3. Upload Song & Separate Analyze Step */}
           <div>
             <label
               htmlFor="simple-audio-upload"
               className="block text-xs font-semibold text-zinc-800 dark:text-zinc-200 mb-2"
             >
-              3. Select Audio Bounce (WAV / FLAC / AIFF / MP3)
+              3. Select Audio File (WAV, FLAC, AIFF, MP3, OGG)
             </label>
+
             <label
               htmlFor="simple-audio-upload"
               className="flex items-center justify-between gap-3 w-full rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3.5 py-2.5 text-xs text-zinc-700 dark:text-zinc-300 hover:border-teal-700 cursor-pointer transition-colors"
             >
-              <span className="truncate font-mono">{report.file_metadata.filename}</span>
+              <span className="truncate font-mono">
+                {selectedFile ? selectedFile.name : report.file_metadata.filename}
+              </span>
               <span className="inline-flex items-center gap-1 font-medium text-teal-800 dark:text-teal-400 shrink-0">
                 <Upload className="w-3.5 h-3.5" />
-                <span>Choose File</span>
+                <span>{selectedFile ? 'Change File' : 'Choose File'}</span>
               </span>
             </label>
             <input
@@ -213,23 +257,117 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               accept=".wav,.flac,.aiff,.mp3,.ogg,audio/*"
               onChange={handleFileChange}
               className="sr-only"
+              disabled={isProcessing}
             />
-            <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-2 leading-relaxed">
-              <strong>Phase 1 Ingest Notice:</strong> Selecting a file reads local metadata only without performing real DSP. In Phase 2, this will stream to the FFmpeg/libebur128 math pipeline to calculate genuine LUFS and intersample clipping.
-            </div>
-            <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-mono tabular-nums">
-              {report.file_metadata.format} · {(report.file_metadata.sample_rate_hz / 1000).toFixed(1)} kHz ·{' '}
-              {formatTimecode(report.file_metadata.duration_seconds)}
-            </div>
+
+            {/* File Selected State */}
+            {selectedFile && (
+              <div className="mt-3 p-3 rounded bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 space-y-2">
+                <div className="flex items-center justify-between text-xs font-mono">
+                  <span className="font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-[180px]">
+                    {selectedFile.name}
+                  </span>
+                  <span className="text-zinc-500 shrink-0">
+                    {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB
+                  </span>
+                </div>
+
+                <div className="flex items-start gap-1.5 text-[11px] text-zinc-600 dark:text-zinc-400">
+                  <Shield className="w-3.5 h-3.5 text-teal-700 shrink-0 mt-0.5" />
+                  <span>
+                    <strong>Privacy Notice:</strong> Audio is processed ephemerally in server RAM and automatically purged immediately upon completion.
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTriggerAnalysis}
+                    disabled={isProcessing}
+                    className="flex-1 px-3 py-2 rounded bg-teal-800 hover:bg-teal-900 text-white text-xs font-medium transition-colors disabled:opacity-50"
+                  >
+                    {isProcessing ? 'Analyzing...' : 'Analyze with Mathematical DSP'}
+                  </button>
+
+                  {onClearFile && (
+                    <button
+                      type="button"
+                      onClick={onClearFile}
+                      disabled={isProcessing}
+                      className="p-2 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors"
+                      title="Clear selected file"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* In-flight Analysis Progress */}
+            {isProcessing && (
+              <div className="mt-3 p-3 rounded bg-teal-50/80 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-2">
+                <div className="flex items-center justify-between text-xs text-teal-900 dark:text-teal-200">
+                  <span className="font-semibold">
+                    {analysisStage === 'uploading' ? 'Streaming audio upload...' : 'Executing FFmpeg & SciPy DSP...'}
+                  </span>
+                  {onCancelAnalysis && (
+                    <button
+                      type="button"
+                      onClick={onCancelAnalysis}
+                      className="text-xs text-red-700 dark:text-red-400 hover:underline font-mono"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+                <div className="w-full bg-teal-200 dark:bg-teal-900 h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-teal-700 h-full w-2/3 animate-pulse rounded-full" />
+                </div>
+              </div>
+            )}
+
+            {/* Error Message */}
+            {errorMessage && (
+              <div className="mt-3 p-2.5 rounded bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-800 dark:text-red-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Option to load demonstration data */}
+            {onLoadDemonstration && !selectedFile && (
+              <div className="mt-2 text-right">
+                <button
+                  type="button"
+                  onClick={onLoadDemonstration}
+                  className="text-[11px] text-teal-800 dark:text-teal-400 hover:underline font-mono"
+                >
+                  View demonstration fixture instead →
+                </button>
+              </div>
+            )}
           </div>
         </div>
-
-        {uploadStatusNote && (
-          <div className="mt-4 text-xs text-teal-900 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 rounded-md px-3.5 py-2">
-            {uploadStatusNote}
-          </div>
-        )}
       </section>
+
+      {/* Audio Waveform & Cue Player Section */}
+      <WaveformInspector
+        durationSeconds={report.file_metadata.duration_seconds}
+        issues={report.issues}
+        activeIssueId={activeIssueId}
+        activeTimestamp={activeTimestamp}
+        onSelectTimestamp={(issueId, ts) => {
+          setActiveIssueId(issueId);
+          setActiveTimestamp(ts);
+        }}
+        monoMode={monoMode}
+        onToggleMono={() => setMonoMode((m) => !m)}
+        isUnmastered={mixStage === 'unmastered_mix'}
+        timeline={report.timeline}
+        isDemonstrationData={report.is_demonstration_data}
+        audioFile={audioFile || selectedFile}
+      />
 
       {!consent.audio_analysis_consent ? (
         <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-8 text-center bg-zinc-50 dark:bg-zinc-900">
@@ -242,7 +380,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
           {/* Prioritized Action Summary for Beginners */}
           <section
             aria-label="Prioritized Plain-Language Action Plan"
-            className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6"
+            className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6 shadow-xs"
           >
             <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-200 dark:border-zinc-800">
               <div>
@@ -324,7 +462,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               {objectiveIssues.map((issue) => (
                 <article
                   key={issue.issue_id}
-                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6"
+                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-6 shadow-xs"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-100 dark:border-zinc-800">
                     <div>
@@ -346,6 +484,19 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                         {issue.title}
                       </h3>
                     </div>
+
+                    {issue.timestamps[0] && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveIssueId(issue.issue_id);
+                          setActiveTimestamp(issue.timestamps[0]);
+                        }}
+                        className="text-xs px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 font-mono text-teal-800 dark:text-teal-400"
+                      >
+                        Audition in Waveform →
+                      </button>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
@@ -403,7 +554,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               {stylisticIssues.map((issue) => (
                 <article
                   key={issue.issue_id}
-                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50/60 dark:bg-zinc-900/60 p-6"
+                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg bg-zinc-50/60 dark:bg-zinc-900/60 p-6 shadow-xs"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-zinc-200 dark:border-zinc-800">
                     <div>
@@ -421,24 +572,23 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                         {issue.title}
                       </h3>
                     </div>
-                    <CheckCircle2 className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                        What was detected & Why it matters
+                        Creative Observation
                       </h4>
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.what_was_detected} {issue.learning_guide.why_it_matters}
+                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1">
+                        {issue.learning_guide.what_was_detected}
                       </p>
                     </div>
                     <div>
                       <h4 className="text-xs font-semibold uppercase tracking-wider text-teal-800 dark:text-teal-400">
-                        What to try & How to verify
+                        Artistic Alternative
                       </h4>
-                      <p className="text-sm text-zinc-700 dark:text-zinc-300 mt-1.5 leading-relaxed">
-                        {issue.learning_guide.what_to_try} {issue.learning_guide.how_to_verify}
+                      <p className="text-sm text-zinc-800 dark:text-zinc-200 mt-1">
+                        {issue.learning_guide.what_to_try}
                       </p>
                     </div>
                   </div>

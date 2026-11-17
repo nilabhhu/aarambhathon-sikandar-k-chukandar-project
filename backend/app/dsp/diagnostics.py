@@ -2,7 +2,8 @@
 Rule-based diagnostic engine for MixLearn Studio Phase 2.
 Evaluates deterministic mathematical measurements against genre and mix-stage targets.
 Strictly separates objective technical defects from subjective stylistic notes (Rule 8).
-Generates pedagogical 4-step learning guides and prioritized recommendations.
+Ensures only genuinely measured regions receive specific timestamps; whole-track findings
+are truthfully labeled as whole-track rather than inventing arbitrary locations.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -23,22 +24,26 @@ def evaluate_diagnostics(
 
     is_unmastered = mix_stage == "unmastered_mix"
     rec_counter = 1
+    buckets = timeline.get("buckets", []) if timeline else []
 
     # 1. Objective Technical Issue: Sample Clipping Runs
-    clip_val = measurements["sample_clipping_events"]["value"]
+    clip_val = measurements.get("sample_clipping_events", {}).get("value")
     if clip_val is not None and clip_val > 0:
         issue_id = "iss-tech-sample-clipping"
         clip_ts = []
-        if timeline and "buckets" in timeline:
-            for b in timeline["buckets"]:
-                if b.get("clipped"):
-                    clip_ts.append({
-                        "start_sec": b["start_sec"],
-                        "end_sec": b["end_sec"],
-                        "label": f"Clipping event at {b['start_sec']}s",
-                    })
+        for b in buckets:
+            if b.get("clipped"):
+                clip_ts.append({
+                    "start_sec": b["start_sec"],
+                    "end_sec": b["end_sec"],
+                    "label": f"Clipping detected at {b['start_sec']}s",
+                })
         if not clip_ts:
-            clip_ts = [{"start_sec": 0.0, "end_sec": min(duration_seconds, 2.0), "label": "Full mix pass"}]
+            clip_ts = [{
+                "start_sec": 0.0,
+                "end_sec": round(duration_seconds, 2),
+                "label": "Whole-track: Intermittent micro-sample flat-topping detected",
+            }]
 
         issues.append({
             "issue_id": issue_id,
@@ -78,22 +83,37 @@ def evaluate_diagnostics(
         rec_counter += 1
 
     # 2. Objective Technical Issue: True Peak Headroom
-    tp_val = measurements["true_peak_max"]["value"]
+    tp_val = measurements.get("true_peak_max", {}).get("value")
     if tp_val is not None:
         target_tp = -3.0 if is_unmastered else -1.0
         if tp_val > target_tp:
             severity = "critical" if tp_val > 0.0 else "warning"
             issue_id = "iss-tech-true-peak-headroom"
+
+            # Check if any timeline buckets exceeded target
+            tp_ts = []
+            for b in buckets:
+                if b.get("peak_dbfs") is not None and b["peak_dbfs"] >= target_tp:
+                    tp_ts.append({
+                        "start_sec": b["start_sec"],
+                        "end_sec": b["end_sec"],
+                        "label": f"Peak zone {b['peak_dbfs']} dBFS at {b['start_sec']}s",
+                    })
+            if not tp_ts:
+                tp_ts = [{
+                    "start_sec": 0.0,
+                    "end_sec": round(duration_seconds, 2),
+                    "label": "Whole-track: Global inter-sample peak measurement",
+                }]
+
             issues.append({
                 "issue_id": issue_id,
                 "classification": "objective_technical",
                 "domain": "true_peak_clipping",
                 "severity": severity,
                 "confidence": 0.95,
-                "title": f"True Peak Ceiling ({tp_val:.2f} dBTP) Exceeds Target ({target_tp:.1f} dBTP)",
-                "timestamps": [
-                    {"start_sec": 0.0, "end_sec": min(duration_seconds, 4.0), "label": "Loudest transient peaks"}
-                ],
+                "title": f"True Peak Ceiling ({tp_val:.2f} dBTP) Exceeds Recommended Target ({target_tp:.1f} dBTP)",
+                "timestamps": tp_ts[:5],
                 "evidence": [
                     {
                         "metric_key": "true_peak_max",
@@ -124,10 +144,27 @@ def evaluate_diagnostics(
             rec_counter += 1
 
     # 3. Objective Technical Issue: Stereo Phase Inversion / Cancellation
-    min_corr = measurements["phase_correlation_min"]["value"]
-    mean_corr = measurements["phase_correlation_mean"]["value"]
+    min_corr = measurements.get("phase_correlation_min", {}).get("value")
     if min_corr is not None and min_corr < -0.2:
         issue_id = "iss-tech-phase-cancellation"
+
+        # Find exact buckets with negative correlation
+        phase_ts = []
+        for b in buckets:
+            b_corr = b.get("phase_correlation")
+            if b_corr is not None and b_corr < -0.2:
+                phase_ts.append({
+                    "start_sec": b["start_sec"],
+                    "end_sec": b["end_sec"],
+                    "label": f"Out-of-phase region ({b_corr:.2f}) at {b['start_sec']}s",
+                })
+        if not phase_ts:
+            phase_ts = [{
+                "start_sec": 0.0,
+                "end_sec": round(duration_seconds, 2),
+                "label": "Whole-track: Intermittent negative phase correlation detected",
+            }]
+
         issues.append({
             "issue_id": issue_id,
             "classification": "objective_technical",
@@ -135,9 +172,7 @@ def evaluate_diagnostics(
             "severity": "warning" if min_corr >= -0.6 else "critical",
             "confidence": 0.9,
             "title": f"Negative Phase Correlation ({min_corr:.2f}) Detected",
-            "timestamps": [
-                {"start_sec": 0.0, "end_sec": min(duration_seconds, 5.0), "label": "Out-of-phase stereo regions"}
-            ],
+            "timestamps": phase_ts[:5],
             "evidence": [
                 {
                     "metric_key": "phase_correlation_min",
@@ -149,9 +184,9 @@ def evaluate_diagnostics(
             ],
             "learning_guide": {
                 "what_was_detected": f"Stereo phase correlation drops to {min_corr:.2f}, indicating negative polarity between channels.",
-                "why_it_matters": "When summed to mono (phones, Bluetooth speakers, clubs), out-of-phase elements cancel out and disappear.",
-                "what_to_try": "Check wide synth pads, vocal wideners, or drum room mics. Narrow stereo width below 150 Hz to pure mono.",
-                "how_to_verify": "Audition mix in mono and confirm bass and vocals do not drop in volume.",
+                "why_it_matters": "When summed to mono (smartphones, mono Bluetooth speakers, club systems), out-of-phase elements destructively cancel out.",
+                "what_to_try": "Check wide synth pads, vocal stereo wideners, or drum overhead mics. Keep sub-bass below 120 Hz centered in pure mono.",
+                "how_to_verify": "Audition mix in mono and confirm lead vocals and kick do not lose presence or volume.",
             },
         })
 
@@ -160,15 +195,15 @@ def evaluate_diagnostics(
             "priority_rank": rec_counter,
             "linked_issue_id": issue_id,
             "classification": "objective_technical",
-            "action_title": "Fix Out-of-Phase Stereo Elements and Mono Low End",
-            "beginner_summary": "Listen in mono and make sure low frequencies are in the center, not stretched too wide.",
-            "advanced_dsp_guidance": "Use a bass-management utility to sum all frequency content below 120 Hz to mono, and check widening plugins on synths.",
-            "verification_check": "Verify min phase correlation remains >= 0.0 throughout the song.",
+            "action_title": "Fix Out-of-Phase Stereo Elements and Center Low End",
+            "beginner_summary": "Listen in mono and make sure low frequencies and lead vocals remain centered and punchy.",
+            "advanced_dsp_guidance": "Use a bass-management utility to sum content below 120 Hz to mono, and inspect widening plugins on stereo instruments.",
+            "verification_check": "Verify min phase correlation remains >= 0.0 across the mix.",
         })
         rec_counter += 1
 
     # 4. Subjective Stylistic Observation: Low-Mid / Mud Density (200-500 Hz)
-    mud_val = measurements["mud_band_energy_200_500hz"]["value"]
+    mud_val = measurements.get("mud_band_energy_200_500hz", {}).get("value")
     if mud_val is not None:
         issue_id = "iss-stylistic-low-mid-density"
         status_note = "warm and full" if mud_val > -20.0 else "clean and scooped"
@@ -180,20 +215,24 @@ def evaluate_diagnostics(
             "confidence": 0.85,
             "title": f"Low-Mid Acoustic Density ({mud_val:.1f} dBFS) — {status_note.title()}",
             "timestamps": [
-                {"start_sec": 0.0, "end_sec": min(duration_seconds, 10.0), "label": "Low-mid frequency zone (200-500 Hz)"}
+                {
+                    "start_sec": 0.0,
+                    "end_sec": round(duration_seconds, 2),
+                    "label": "Whole-track spectral distribution: 200–500 Hz low-mid band",
+                }
             ],
             "evidence": [
                 {
                     "metric_key": "mud_band_energy_200_500hz",
                     "measured_value": float(mud_val),
                     "unit": "dBFS",
-                    "target_range": "-26.0 to -18.0 dBFS",
+                    "target_range": "-26.0 to -18.0 dBFS (stylistic reference)",
                     "method": "Integrated Welch PSD power over 200–500 Hz band",
                 }
             ],
             "learning_guide": {
-                "what_was_detected": f"Energy in the 200–500 Hz range measured {mud_val:.1f} dBFS.",
-                "why_it_matters": "The 200–500 Hz range gives body and warmth, but too much build-up masks vocals and makes mixes sound cloudy.",
+                "what_was_detected": f"Energy in the 200–500 Hz range measured {mud_val:.1f} dBFS across the track.",
+                "why_it_matters": "The 200–500 Hz range gives body and warmth, but excess build-up can mask vocals. Target ranges are genre-dependent aesthetic references, not universal mix rules.",
                 "what_to_try": "If the vocal feels veiled, consider a subtle wide dynamic dip (-1 to -2 dB) at 300–400 Hz on rhythm instruments.",
                 "how_to_verify": "A/B compare the revised mix against your reference track at matched loudness.",
             },
@@ -212,7 +251,7 @@ def evaluate_diagnostics(
         rec_counter += 1
 
     # 5. Subjective Stylistic Observation: Sub-Bass Balance (20-60 Hz)
-    sub_val = measurements["sub_bass_energy_20_60hz"]["value"]
+    sub_val = measurements.get("sub_bass_energy_20_60hz", {}).get("value")
     if sub_val is not None:
         issue_id = "iss-stylistic-sub-bass-weight"
         issues.append({
@@ -223,20 +262,24 @@ def evaluate_diagnostics(
             "confidence": 0.85,
             "title": f"Sub-Bass Energy Distribution ({sub_val:.1f} dBFS)",
             "timestamps": [
-                {"start_sec": 0.0, "end_sec": min(duration_seconds, 10.0), "label": "Sub-bass region (20-60 Hz)"}
+                {
+                    "start_sec": 0.0,
+                    "end_sec": round(duration_seconds, 2),
+                    "label": "Whole-track spectral distribution: 20–60 Hz sub-bass band",
+                }
             ],
             "evidence": [
                 {
                     "metric_key": "sub_bass_energy_20_60hz",
                     "measured_value": float(sub_val),
                     "unit": "dBFS",
-                    "target_range": "-32.0 to -22.0 dBFS",
+                    "target_range": "-32.0 to -22.0 dBFS (stylistic reference)",
                     "method": "Integrated Welch PSD power over 20–60 Hz band",
                 }
             ],
             "learning_guide": {
-                "what_was_detected": f"Sub-bass energy below 60 Hz measured {sub_val:.1f} dBFS.",
-                "why_it_matters": "Excessive sub-bass eats limiter headroom and distorts smaller speakers, while insufficient sub lacks physical impact.",
+                "what_was_detected": f"Sub-bass energy below 60 Hz measured {sub_val:.1f} dBFS across the track.",
+                "why_it_matters": "Sub-bass provides physical punch on subwoofers. Ideal sub-bass balance varies heavily by genre (e.g., club vs acoustic) and artistic intent.",
                 "what_to_try": "Ensure high-pass filtering (24–30 Hz, 12 dB/oct) is applied to non-sub instruments.",
                 "how_to_verify": "Check low-end reproduction on both studio monitors and consumer earbuds.",
             },

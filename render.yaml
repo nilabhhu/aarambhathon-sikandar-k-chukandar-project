@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: mixlearn-studio-api
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: .
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MAX_CONCURRENT_DSP_TASKS
+        value: 2
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://aarambhathon-sikandar-k-chukandar-p-rho.vercel.app,https://aarambhathon-sikandar-k-chukandar-project-git-dev-nilabh1.vercel.app

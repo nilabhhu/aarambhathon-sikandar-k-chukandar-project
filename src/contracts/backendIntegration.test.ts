@@ -181,5 +181,50 @@ test('Backend Integration: analyzeAudioWithDsp successfully validates live DSP r
   const result = await analyzeAudioWithDsp(fd, mockFetch as unknown as typeof fetch);
   assert.equal(result.success, true);
   assert.equal(result.source, 'backend');
-  assert.equal(result.report.is_demonstration_data, false);
+  assert.equal(result.report?.is_demonstration_data, false);
+});
+
+test('Backend Integration: analyzeAudioWithDsp never falls back to demo data on server error (Rule 2 & 3)', async () => {
+  const mockFetch = async () => {
+    return {
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      json: async () => ({
+        detail: { message: 'DSP pipeline out of memory' },
+      }),
+    } as unknown as Response;
+  };
+
+  const fd = new FormData();
+  fd.append('interface_mode', 'advanced');
+  fd.append('genre', 'indie_rock');
+  fd.append('mix_stage', 'unmastered_mix');
+  fd.append('consent_state_json', JSON.stringify(createDefaultConsentState()));
+
+  const result = await analyzeAudioWithDsp(fd, mockFetch as unknown as typeof fetch);
+  assert.equal(result.success, false);
+  assert.equal(result.report, undefined);
+  assert.equal(result.statusCode, 500);
+  assert.ok(result.errorMessage?.includes('DSP pipeline out of memory'));
+});
+
+test('Backend Integration: analyzeAudioWithDsp handles abort cancellation cleanly', async () => {
+  const controller = new AbortController();
+  controller.abort();
+
+  const mockFetch = async (_url: any, opts: any) => {
+    if (opts.signal?.aborted) {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    return {} as unknown as Response;
+  };
+
+  const fd = new FormData();
+  const result = await analyzeAudioWithDsp(fd, mockFetch as unknown as typeof fetch, controller.signal);
+  assert.equal(result.success, false);
+  assert.equal(result.report, undefined);
+  assert.ok(result.errorMessage?.includes('cancelled'));
 });

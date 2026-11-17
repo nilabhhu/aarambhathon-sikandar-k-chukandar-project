@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   AnalysisReport,
   ConsentState,
@@ -49,12 +49,12 @@ export default function App() {
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [checkingBackend, setCheckingBackend] = useState<boolean>(false);
 
-  const [customFileMeta, setCustomFileMeta] = useState<{
-    filename?: string;
-    fileSize?: number;
-    durationSec?: number;
-    sampleRate?: number;
-  }>({});
+  // File Upload & Lifecycle States
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [analysisStage, setAnalysisStage] = useState<
+    'idle' | 'selected' | 'uploading' | 'analyzing' | 'complete' | 'failed'
+  >('idle');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const [reportSource, setReportSource] = useState<'backend' | 'offline_fallback'>('offline_fallback');
   const [activeReport, setActiveReport] = useState<AnalysisReport>(() =>
@@ -94,51 +94,67 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Synchronize report from backend API (via relative URL proxy) with offline fallback
+  // Initial Backend Health Check on Mount (without overwriting real reports!)
   useEffect(() => {
     let isCancelled = false;
-    const loadReport = async () => {
-      setLoadingReport(true);
+    const initBackend = async () => {
       try {
-        const result = await fetchAnalysisReport({
-          interface_mode: route === 'simple' ? 'simple' : 'advanced',
-          genre,
-          mix_stage: mixStage,
-          consent_state: consent,
-          custom_filename: customFileMeta.filename,
-          custom_file_size_bytes: customFileMeta.fileSize,
-          custom_duration_sec: customFileMeta.durationSec,
-          custom_sample_rate: customFileMeta.sampleRate,
-        });
-
+        const health = await checkBackendHealth();
         if (!isCancelled) {
-          setActiveReport(result.report);
-          setReportSource(result.source);
-          setBackendOnline(result.source === 'backend');
-          setReportError(result.errorMessage ?? null);
+          setBackendOnline(health.online);
         }
-      } catch (err: any) {
+      } catch {
         if (!isCancelled) {
-          setReportSource('offline_fallback');
           setBackendOnline(false);
-          setReportError(err.message || 'Backend unavailable, switched to offline fallback');
-        }
-      } finally {
-        if (!isCancelled) {
-          setLoadingReport(false);
         }
       }
     };
-
-    loadReport();
+    initBackend();
     return () => {
       isCancelled = true;
     };
-  }, [route, genre, mixStage, consent, customFileMeta]);
+  }, []);
 
-  const handleAnalyzeAudioFile = async (file: File) => {
-    setLoadingReport(true);
+  // File Selection
+  const handleSelectFile = (file: File) => {
+    setSelectedFile(file);
+    setAnalysisStage('selected');
     setReportError(null);
+  };
+
+  // Clear Selected File
+  const handleClearFile = () => {
+    setSelectedFile(null);
+    setAnalysisStage('idle');
+    setReportError(null);
+  };
+
+  // Cancel in-flight DSP analysis
+  const handleCancelAnalysis = () => {
+    abortControllerRef.current?.abort();
+    setAnalysisStage('selected');
+    setReportError('DSP analysis was cancelled.');
+    setLoadingReport(false);
+  };
+
+  // Real Mathematical DSP Analysis (Rule 2 & 3: Never falls back to fake demo data on failure)
+  const handleAnalyzeAudioFile = async (fileToAnalyze?: File) => {
+    const file = fileToAnalyze || selectedFile;
+    if (!file) return;
+
+    if (!consent.audio_analysis_consent) {
+      setReportError('Permission 1 (audio_analysis_consent) is required to inspect audio.');
+      setAnalysisStage('failed');
+      return;
+    }
+
+    setLoadingReport(true);
+    setAnalysisStage('uploading');
+    setReportError(null);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       const fd = new FormData();
       fd.append('audio_file', file);
@@ -147,14 +163,59 @@ export default function App() {
       fd.append('mix_stage', mixStage);
       fd.append('consent_state_json', JSON.stringify(consent));
 
-      const result = await analyzeAudioWithDsp(fd);
-      setActiveReport(result.report);
-      setReportSource(result.source);
-      if (!result.success && result.errorMessage) {
-        setReportError(result.errorMessage);
+      // After upload starts, show analyzing state
+      const timer = setTimeout(() => {
+        setAnalysisStage('analyzing');
+      }, 600);
+
+      const result = await analyzeAudioWithDsp(fd, fetch, controller.signal);
+      clearTimeout(timer);
+
+      if (result.success && result.report) {
+        setActiveReport(result.report);
+        setReportSource('backend');
+        setAnalysisStage('complete');
+        setReportError(null);
+      } else {
+        setAnalysisStage('failed');
+        setReportError(result.errorMessage || 'Mathematical DSP analysis failed.');
       }
     } catch (err: any) {
-      setReportError(err.message || 'DSP analysis failed');
+      setAnalysisStage('failed');
+      setReportError(err.message || 'DSP analysis failed.');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  // Explicitly Load Demonstration Report
+  const handleLoadDemonstration = async () => {
+    setLoadingReport(true);
+    try {
+      const result = await fetchAnalysisReport({
+        interface_mode: route === 'simple' ? 'simple' : 'advanced',
+        genre,
+        mix_stage: mixStage,
+        consent_state: consent,
+      });
+
+      setActiveReport(result.report!);
+      setReportSource(result.source);
+      setSelectedFile(null);
+      setAnalysisStage('complete');
+      setReportError(null);
+    } catch {
+      setActiveReport(
+        generatePhase1DemoReport({
+          interface_mode: route === 'simple' ? 'simple' : 'advanced',
+          genre,
+          mix_stage: mixStage,
+          consent_state: consent,
+        })
+      );
+      setReportSource('offline_fallback');
+      setSelectedFile(null);
+      setAnalysisStage('complete');
     } finally {
       setLoadingReport(false);
     }
@@ -166,25 +227,8 @@ export default function App() {
     try {
       const health = await checkBackendHealth();
       setBackendOnline(health.online);
-
-      // Trigger fresh report fetch on manual ping
-      const result = await fetchAnalysisReport({
-        interface_mode: route === 'simple' ? 'simple' : 'advanced',
-        genre,
-        mix_stage: mixStage,
-        consent_state: consent,
-        custom_filename: customFileMeta.filename,
-        custom_file_size_bytes: customFileMeta.fileSize,
-        custom_duration_sec: customFileMeta.durationSec,
-        custom_sample_rate: customFileMeta.sampleRate,
-      });
-
-      setActiveReport(result.report);
-      setReportSource(result.source);
-      setReportError(result.errorMessage ?? null);
     } catch {
       setBackendOnline(false);
-      setReportSource('offline_fallback');
     } finally {
       setCheckingBackend(false);
     }
@@ -528,9 +572,18 @@ export default function App() {
         {route === 'simple' && (
           <div className="space-y-8">
             {reportError && (
-              <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 p-3 rounded text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span>Notice: {reportError} (Active data rendered using client demonstration fixture)</span>
+              <div className="border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700/50 p-3 rounded text-xs text-red-900 dark:text-red-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                  <span>{reportError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReportError(null)}
+                  className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-mono"
+                >
+                  Dismiss
+                </button>
               </div>
             )}
             <SimpleMixCheckView
@@ -539,18 +592,42 @@ export default function App() {
               genre={genre}
               mixStage={mixStage}
               consent={consent}
-              onChangeGenre={setGenre}
-              onChangeMixStage={setMixStage}
-              onUploadFileMetadata={(meta) =>
-                setCustomFileMeta({
-                  filename: meta.filename,
-                  fileSize: meta.fileSize,
-                  durationSec: meta.durationSec,
-                  sampleRate: meta.sampleRate,
-                })
-              }
+              onChangeGenre={(g) => {
+                setGenre(g);
+                if (activeReport.is_demonstration_data) {
+                  setActiveReport(
+                    generatePhase1DemoReport({
+                      interface_mode: 'simple',
+                      genre: g,
+                      mix_stage: mixStage,
+                      consent_state: consent,
+                    })
+                  );
+                }
+              }}
+              onChangeMixStage={(st) => {
+                setMixStage(st);
+                if (activeReport.is_demonstration_data) {
+                  setActiveReport(
+                    generatePhase1DemoReport({
+                      interface_mode: 'simple',
+                      genre,
+                      mix_stage: st,
+                      consent_state: consent,
+                    })
+                  );
+                }
+              }}
               onSwitchToAdvanced={() => navigateTo('advanced')}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
+              selectedFile={selectedFile}
+              audioFile={selectedFile}
+              onSelectFile={handleSelectFile}
+              onClearFile={handleClearFile}
+              analysisStage={analysisStage}
+              errorMessage={reportError}
+              onCancelAnalysis={handleCancelAnalysis}
+              onLoadDemonstration={handleLoadDemonstration}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
@@ -559,9 +636,18 @@ export default function App() {
         {route === 'advanced' && (
           <div className="space-y-8">
             {reportError && (
-              <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/50 p-3 rounded text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                <span>Notice: {reportError} (Active data rendered using client demonstration fixture)</span>
+              <div className="border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700/50 p-3 rounded text-xs text-red-900 dark:text-red-200 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                  <span>{reportError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReportError(null)}
+                  className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-mono"
+                >
+                  Dismiss
+                </button>
               </div>
             )}
             <AdvancedMixCheckView
@@ -570,9 +656,41 @@ export default function App() {
               genre={genre}
               mixStage={mixStage}
               consent={consent}
-              onChangeGenre={setGenre}
-              onChangeMixStage={setMixStage}
+              onChangeGenre={(g) => {
+                setGenre(g);
+                if (activeReport.is_demonstration_data) {
+                  setActiveReport(
+                    generatePhase1DemoReport({
+                      interface_mode: 'advanced',
+                      genre: g,
+                      mix_stage: mixStage,
+                      consent_state: consent,
+                    })
+                  );
+                }
+              }}
+              onChangeMixStage={(st) => {
+                setMixStage(st);
+                if (activeReport.is_demonstration_data) {
+                  setActiveReport(
+                    generatePhase1DemoReport({
+                      interface_mode: 'advanced',
+                      genre,
+                      mix_stage: st,
+                      consent_state: consent,
+                    })
+                  );
+                }
+              }}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
+              selectedFile={selectedFile}
+              audioFile={selectedFile}
+              onSelectFile={handleSelectFile}
+              onClearFile={handleClearFile}
+              analysisStage={analysisStage}
+              errorMessage={reportError}
+              onCancelAnalysis={handleCancelAnalysis}
+              onLoadDemonstration={handleLoadDemonstration}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>

@@ -35,9 +35,47 @@ interface AdvancedMixCheckViewProps {
   onChangeGenre: (genre: GenreId) => void;
   onChangeMixStage: (stage: MixStage) => void;
   onAnalyzeAudioFile?: (file: File) => void;
+  audioFile?: File | null;
+  selectedFile?: File | null;
+  onSelectFile?: (file: File) => void;
+  onClearFile?: () => void;
+  analysisStage?: 'idle' | 'selected' | 'uploading' | 'analyzing' | 'complete' | 'failed';
+  errorMessage?: string | null;
+  onCancelAnalysis?: () => void;
+  onLoadDemonstration?: () => void;
 }
 
-type WorkbenchState = 'report' | 'empty' | 'loading' | 'error';
+function renderMeasurement(
+  val: number | null | undefined,
+  unit: string,
+  status?: string,
+  unavailableReason?: string | null,
+  showPlus = false
+) {
+  if (status === 'unavailable' || val === null || val === undefined) {
+    return (
+      <span
+        className="font-mono text-zinc-400 dark:text-zinc-500 italic text-[11px]"
+        title={unavailableReason || 'Unavailable for this audio format'}
+      >
+        N/A ({unavailableReason || 'Unavailable'})
+      </span>
+    );
+  }
+  const prefix = showPlus && val > 0 ? '+' : '';
+  const colorClass =
+    status === 'critical'
+      ? 'text-red-700 dark:text-red-400'
+      : status === 'warning'
+      ? 'text-amber-700 dark:text-amber-400'
+      : 'text-zinc-900 dark:text-zinc-100';
+
+  return (
+    <span className={`font-mono font-bold ${colorClass}`}>
+      {prefix}{val} {unit}
+    </span>
+  );
+}
 
 const MEASUREMENT_LABELS: Record<keyof AnalysisReport['measurements'], string> = {
   sample_peak_max: 'Sample Peak Max',
@@ -66,8 +104,15 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   onChangeGenre,
   onChangeMixStage,
   onAnalyzeAudioFile,
+  audioFile = null,
+  selectedFile = null,
+  onSelectFile,
+  onClearFile,
+  analysisStage = 'idle',
+  errorMessage = null,
+  onCancelAnalysis,
+  onLoadDemonstration,
 }) => {
-  const [workbenchState, setWorkbenchState] = useState<WorkbenchState>('report');
   const firstIssue = report.issues[0];
   const [activeIssueId, setActiveIssueId] = useState<string | null>(firstIssue?.issue_id ?? null);
   const [activeTimestamp, setActiveTimestamp] = useState<{
@@ -177,25 +222,6 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
-            {/* UI State Preview Switcher */}
-            <div className="flex items-center gap-1 p-1 bg-zinc-100 dark:bg-zinc-800 rounded-md text-xs font-mono">
-              <span className="px-2 text-zinc-500 text-[11px]">View State:</span>
-              {(['report', 'empty', 'loading', 'error'] as WorkbenchState[]).map((st) => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setWorkbenchState(st)}
-                  className={`px-2.5 py-1 rounded capitalize transition-colors ${
-                    workbenchState === st
-                      ? 'bg-white dark:bg-zinc-950 text-teal-800 dark:text-teal-400 font-semibold shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-
             <div>
               <label htmlFor="adv-genre-select" className="sr-only">
                 Music Genre
@@ -241,92 +267,52 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
           </span>
           <span>Format: {report.file_metadata.format}</span>
           <span>Sample Rate: {report.file_metadata.sample_rate_hz} Hz</span>
-          <span>Bit Depth: {report.file_metadata.bit_depth}-bit</span>
-          <span>Channels: {report.file_metadata.channels} (Stereo)</span>
+          <span>Bit Depth: {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float'}</span>
+          <span>Channels: {report.file_metadata.channels} ({report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'})</span>
           <span>Duration: {formatTimecode(report.file_metadata.duration_seconds)}</span>
           <span>Checksum: {report.file_metadata.sha256_checksum.slice(0, 12)}...</span>
         </div>
       </section>
 
-      {/* Conditionally Render Empty, Loading, Error, or Full Report State */}
-      {workbenchState === 'empty' && (
-        <section className="border border-dashed border-zinc-300 dark:border-zinc-700 rounded-lg p-12 text-center bg-zinc-50/50 dark:bg-zinc-900/40">
-          <FileAudio className="w-12 h-12 text-zinc-400 mx-auto mb-3" />
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            No Audio File Loaded
-          </h2>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-md mx-auto">
-            Drag and drop a 24-bit stereo WAV, FLAC, or AIFF bounce into the workspace, or click below to restore the demonstration report.
-          </p>
-          <button
-            type="button"
-            onClick={() => setWorkbenchState('report')}
-            className="mt-4 px-4 py-2 rounded bg-teal-800 text-white text-xs font-medium hover:bg-teal-900 transition-colors"
-          >
-            Load Demonstration Contract Fixture
-          </button>
-        </section>
-      )}
-
-      {workbenchState === 'loading' && (
-        <section className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-12 text-center bg-white dark:bg-zinc-900 space-y-4">
+      {/* In-flight DSP Processing Banner */}
+      {(analysisStage === 'uploading' || analysisStage === 'analyzing') && (
+        <section className="border border-teal-200 dark:border-teal-800 rounded-lg p-6 bg-teal-50/70 dark:bg-teal-950/40 text-center space-y-3">
           <div className="w-8 h-8 border-2 border-teal-800 border-t-transparent rounded-full animate-spin mx-auto" />
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
-            Simulating Phase 1 Contract Ingest & Verification...
+          <h2 className="text-base font-semibold text-teal-950 dark:text-teal-200">
+            {analysisStage === 'uploading' ? 'Uploading audio stream to ephemeral workspace...' : 'Executing FFmpeg & SciPy mathematical DSP...'}
           </h2>
-          <p className="text-xs text-zinc-500 font-mono max-w-md mx-auto">
-            Validating schema_version 1.0.0, checking consent state, calculating sha256 checksum. Real FFmpeg/libebur128 DSP runs in Phase 2.
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 font-mono max-w-md mx-auto">
+            Computing EBU R128 loudness, true peak oversampling (4x ISP), crest factor, and Welch PSD.
           </p>
-          <button
-            type="button"
-            onClick={() => setWorkbenchState('report')}
-            className="text-xs text-teal-800 dark:text-teal-400 underline"
-          >
-            Return to Report
-          </button>
+          {onCancelAnalysis && (
+            <button
+              type="button"
+              onClick={onCancelAnalysis}
+              className="px-3 py-1.5 rounded text-xs text-red-700 dark:text-red-400 border border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/50"
+            >
+              Cancel Analysis
+            </button>
+          )}
         </section>
       )}
 
-      {workbenchState === 'error' && (
-        <section
-          role="alert"
-          className="border border-red-300 dark:border-red-800 rounded-lg p-6 bg-red-50/60 dark:bg-red-950/40 space-y-3"
-        >
-          <div className="flex items-center gap-2 text-red-800 dark:text-red-300 font-semibold text-sm">
-            <AlertTriangle className="w-5 h-5 shrink-0" />
-            <span>Inspection Error: Consent Revoked or Invalid Multi-Channel Configuration</span>
-          </div>
-          <p className="text-xs text-red-700 dark:text-red-300">
-            Under Product Rule 4, audio analysis cannot execute when Permission 1 (audio_analysis_consent) is false. Enable audio analysis consent or provide a stereo bounce to continue.
-          </p>
-          <button
-            type="button"
-            onClick={() => setWorkbenchState('report')}
-            className="px-3 py-1.5 rounded bg-red-800 text-white text-xs font-medium"
-          >
-            Reset to Demonstration Mode
-          </button>
-        </section>
-      )}
-
-      {workbenchState === 'report' && (
-        <>
-          {/* Functional Waveform & Clickable Issue Timestamps */}
-          <WaveformInspector
-            durationSeconds={report.file_metadata.duration_seconds}
-            issues={report.issues}
-            activeIssueId={activeIssueId}
-            activeTimestamp={activeTimestamp}
-            onSelectTimestamp={(issueId, ts) => {
-              setActiveIssueId(issueId);
-              setActiveTimestamp(ts);
-            }}
-            monoMode={monoMode}
-            onToggleMono={() => setMonoMode((m) => !m)}
-            isUnmastered={mixStage === 'unmastered_mix'}
-            timeline={report.timeline}
-            isDemonstrationData={report.is_demonstration_data}
-          />
+      {/* Functional Waveform & Clickable Issue Timestamps */}
+      <WaveformInspector
+        durationSeconds={report.file_metadata.duration_seconds}
+        issues={report.issues}
+        activeIssueId={activeIssueId}
+        activeTimestamp={activeTimestamp}
+        onSelectTimestamp={(issueId, ts) => {
+          setActiveIssueId(issueId);
+          setActiveTimestamp(ts);
+        }}
+        monoMode={monoMode}
+        onToggleMono={() => setMonoMode((m) => !m)}
+        isUnmastered={mixStage === 'unmastered_mix'}
+        timeline={report.timeline}
+        isDemonstrationData={report.is_demonstration_data}
+        audioFile={audioFile || selectedFile}
+      />
 
           {/* Categorized DSP Metric Sections (Loudness, Peaks, Dynamics, Frequency, Stereo) */}
           <section
@@ -356,21 +342,30 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Integrated Loudness:</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.integrated_loudness.value} LUFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.integrated_loudness.value,
+                      'LUFS',
+                      report.measurements.integrated_loudness.status,
+                      report.measurements.integrated_loudness.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Short-Term Max (3s):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.short_term_max_loudness.value} LUFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.short_term_max_loudness.value,
+                      'LUFS',
+                      report.measurements.short_term_max_loudness.status,
+                      report.measurements.short_term_max_loudness.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Momentary Max (400ms):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.momentary_max_loudness.value} LUFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.momentary_max_loudness.value,
+                      'LUFS',
+                      report.measurements.momentary_max_loudness.status,
+                      report.measurements.momentary_max_loudness.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-700 dark:text-zinc-300">Target Range:</span>
@@ -390,15 +385,22 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">True Peak Max (4x ISP):</span>
-                    <span className="font-mono font-bold text-red-700 dark:text-red-400">
-                      +{report.measurements.true_peak_max.value} dBTP
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.true_peak_max.value,
+                      'dBTP',
+                      report.measurements.true_peak_max.status,
+                      report.measurements.true_peak_max.unavailable_reason,
+                      true
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Sample Clipping Events:</span>
-                    <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                      {report.measurements.sample_clipping_events.value} count
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.sample_clipping_events.value,
+                      'count',
+                      report.measurements.sample_clipping_events.status,
+                      report.measurements.sample_clipping_events.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-700 dark:text-zinc-300">Standard & Target:</span>
@@ -417,15 +419,21 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Dynamic Crest Factor:</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.crest_factor.value} dB
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.crest_factor.value,
+                      'dB',
+                      report.measurements.crest_factor.status,
+                      report.measurements.crest_factor.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Loudness Range (LRA):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.loudness_range_lra.value} LU
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.loudness_range_lra.value,
+                      'LU',
+                      report.measurements.loudness_range_lra.status,
+                      report.measurements.loudness_range_lra.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-700 dark:text-zinc-300">Measurement Standard:</span>
@@ -444,27 +452,39 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Sub-Bass (20–60 Hz):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.sub_bass_energy_20_60hz.value} dBFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.sub_bass_energy_20_60hz.value,
+                      'dBFS',
+                      report.measurements.sub_bass_energy_20_60hz.status,
+                      report.measurements.sub_bass_energy_20_60hz.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Low-Mid / Mud (200–500 Hz):</span>
-                    <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                      {report.measurements.mud_band_energy_200_500hz.value} dBFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.mud_band_energy_200_500hz.value,
+                      'dBFS',
+                      report.measurements.mud_band_energy_200_500hz.status,
+                      report.measurements.mud_band_energy_200_500hz.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Presence (2–5 kHz):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.presence_band_energy_2k_5khz.value} dBFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.presence_band_energy_2k_5khz.value,
+                      'dBFS',
+                      report.measurements.presence_band_energy_2k_5khz.status,
+                      report.measurements.presence_band_energy_2k_5khz.unavailable_reason
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-700 dark:text-zinc-300">High Air (10–20 kHz):</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.air_band_energy_10k_20khz.value} dBFS
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.air_band_energy_10k_20khz.value,
+                      'dBFS',
+                      report.measurements.air_band_energy_10k_20khz.status,
+                      report.measurements.air_band_energy_10k_20khz.unavailable_reason
+                    )}
                   </div>
                 </div>
               </div>
@@ -477,21 +497,32 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Phase Correlation (Mean):</span>
-                    <span className="font-mono font-bold text-teal-800 dark:text-teal-400">
-                      +{report.measurements.phase_correlation_mean.value}
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.phase_correlation_mean.value,
+                      '',
+                      report.measurements.phase_correlation_mean.status,
+                      report.measurements.phase_correlation_mean.unavailable_reason,
+                      true
+                    )}
                   </div>
                   <div className="flex justify-between items-center pb-1.5 border-b border-zinc-200/60 dark:border-zinc-800">
                     <span className="text-zinc-700 dark:text-zinc-300">Worst-Case Dip (400ms):</span>
-                    <span className="font-mono font-bold text-amber-700 dark:text-amber-400">
-                      {report.measurements.phase_correlation_min.value}
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.phase_correlation_min.value,
+                      '',
+                      report.measurements.phase_correlation_min.status,
+                      report.measurements.phase_correlation_min.unavailable_reason,
+                      true
+                    )}
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-zinc-700 dark:text-zinc-300">Stereo Width Index:</span>
-                    <span className="font-mono font-bold text-zinc-900 dark:text-zinc-100">
-                      {report.measurements.stereo_width_index.value}%
-                    </span>
+                    {renderMeasurement(
+                      report.measurements.stereo_width_index.value,
+                      '%',
+                      report.measurements.stereo_width_index.status,
+                      report.measurements.stereo_width_index.unavailable_reason
+                    )}
                   </div>
                 </div>
               </div>
@@ -848,8 +879,6 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </div>
           </section>
-        </>
-      )}
     </div>
   );
 };

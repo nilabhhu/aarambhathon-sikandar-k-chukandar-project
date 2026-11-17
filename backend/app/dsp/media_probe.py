@@ -3,10 +3,12 @@ Media probe and container inspection for MixLearn Studio Phase 2 DSP Engine.
 Handles streaming uploads with strict 100 MB hard limit, SHA-256 calculation,
 ffprobe metadata inspection, format validation (WAV, FLAC, AIFF, MP3, OGG),
 and ffmpeg 32-bit float PCM decoding.
+Hardens against path traversals and prevents leaking internal server paths in error messages.
 """
 
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -14,6 +16,8 @@ import subprocess
 from typing import Any, Dict, Optional, Tuple
 
 from fastapi import HTTPException, status
+
+logger = logging.getLogger("mixlearn.dsp.media_probe")
 
 MAX_UPLOAD_BYTES = 104_857_600  # 100 MiB
 CHUNK_SIZE = 65536  # 64 KiB
@@ -53,8 +57,22 @@ def resolve_binary(binary_name: str) -> str:
 def stream_upload_and_hash(upload_file, dest_path: Path) -> Tuple[int, str]:
     """
     Streams file in chunks to dest_path, enforcing MAX_UPLOAD_BYTES and computing SHA-256.
-    Aborts with HTTP 413 if upload exceeds 100 MB.
+    Protects against path traversal and aborts with HTTP 413 if upload exceeds 100 MB.
     """
+    # Verify destination path does not escape its parent workspace directory
+    try:
+        dest_resolved = dest_path.resolve()
+        parent_resolved = dest_path.parent.resolve()
+        dest_resolved.relative_to(parent_resolved)
+    except (ValueError, RuntimeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "ILLEGAL_PATH_TRAVERSAL",
+                "message": "Illegal path traversal attempt detected in upload destination.",
+            },
+        )
+
     hasher = hashlib.sha256()
     total_bytes = 0
 
@@ -79,6 +97,28 @@ def stream_upload_and_hash(upload_file, dest_path: Path) -> Tuple[int, str]:
         if dest_path.exists():
             dest_path.unlink(missing_ok=True)
         raise
+    except Exception as e:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        logger.error(f"Error streaming upload to disk: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "UPLOAD_IO_ERROR",
+                "message": "Encountered an internal disk error while storing uploaded audio.",
+            },
+        )
+
+    if total_bytes == 0:
+        if dest_path.exists():
+            dest_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "EMPTY_FILE",
+                "message": "Uploaded file is 0 bytes (empty). Please upload a valid audio bounce.",
+            },
+        )
 
     return total_bytes, hasher.hexdigest()
 
@@ -109,20 +149,22 @@ def probe_media_file(raw_path: Path) -> Dict[str, Any]:
             },
         )
     except Exception as e:
+        logger.error(f"ffprobe execution error: {e}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "error_code": "PROBE_EXECUTION_ERROR",
-                "message": f"Could not execute ffprobe: {str(e)}",
+                "message": "Could not execute media inspector. File may be unreadable or corrupt.",
             },
         )
 
     if res.returncode != 0 or not res.stdout.strip():
+        logger.warning(f"ffprobe returned non-zero code {res.returncode}: {res.stderr}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "error_code": "CORRUPT_OR_UNREADABLE_MEDIA",
-                "message": "Failed to inspect container; file is corrupt or unreadable.",
+                "message": "Failed to inspect container; file is corrupt, truncated, or not recognized as audio.",
             },
         )
 
@@ -182,7 +224,7 @@ def probe_media_file(raw_path: Path) -> Dict[str, Any]:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail={
                 "error_code": "UNSUPPORTED_MEDIA_TYPE",
-                "message": f"Unsupported media format '{format_name}'. MixLearn Studio accepts WAV, FLAC, AIFF, MP3, and OGG files.",
+                "message": f"Unsupported media format '{format_name or codec_name}'. MixLearn Studio accepts WAV, FLAC, AIFF, MP3, and OGG files.",
             },
         )
 
@@ -268,6 +310,7 @@ def probe_media_file(raw_path: Path) -> Dict[str, Any]:
 def decode_to_pcm_f32le(raw_path: Path, decoded_wav_path: Path) -> Path:
     """
     Decodes arbitrary audio into canonical pcm_f32le WAV at native sample rate.
+    Sanitizes errors to prevent exposing raw paths or internal command output.
     """
     ffmpeg_bin = resolve_binary("ffmpeg")
     cmd = [
@@ -291,20 +334,22 @@ def decode_to_pcm_f32le(raw_path: Path, decoded_wav_path: Path) -> Path:
             },
         )
     except Exception as e:
+        logger.error(f"FFmpeg decode execution error: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error_code": "DECODE_EXECUTION_ERROR",
-                "message": f"Could not execute ffmpeg decode: {str(e)}",
+                "message": "Audio decoder encountered an unexpected internal error.",
             },
         )
 
     if res.returncode != 0 or not decoded_wav_path.exists() or decoded_wav_path.stat().st_size == 0:
+        logger.error(f"FFmpeg failed with return code {res.returncode}: {res.stderr}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail={
                 "error_code": "DECODE_FAILED",
-                "message": f"FFmpeg failed to decode audio into PCM float32: {res.stderr[:300]}",
+                "message": "FFmpeg failed to decode audio into PCM float32. The file may be corrupt or encoded with an unsupported profile.",
             },
         )
 

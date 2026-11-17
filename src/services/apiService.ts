@@ -39,7 +39,7 @@ export interface BackendHealthResponse {
 export interface ReportFetchResult {
   success: boolean;
   source: 'backend' | 'offline_fallback';
-  report: AnalysisReport;
+  report?: AnalysisReport;
   statusCode?: number;
   errorMessage?: string;
 }
@@ -80,10 +80,12 @@ export async function checkBackendHealth(
 /**
  * Executes genuine Phase 2 mathematical DSP analysis via POST /api/v1/analyze/dsp.
  * Streams multipart audio to backend.
+ * Rule 2 & 3: Never falls back to synthetic demo reports on failure.
  */
 export async function analyzeAudioWithDsp(
   formData: FormData,
-  customFetch: typeof fetch = fetch
+  customFetch: typeof fetch = fetch,
+  signal?: AbortSignal
 ): Promise<ReportFetchResult> {
   try {
     const url = buildApiUrl('/api/v1/analyze/dsp');
@@ -93,6 +95,7 @@ export async function analyzeAudioWithDsp(
         Accept: 'application/json',
       },
       body: formData,
+      signal,
     });
 
     if (res.ok) {
@@ -107,35 +110,9 @@ export async function analyzeAudioWithDsp(
           statusCode: res.status,
         };
       } else {
-        // Response failed schema validation
-        const genre = (formData.get('genre') as GenreId) || 'indie_rock';
-        const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
-        const consentJson = formData.get('consent_state_json') as string;
-        let consent: ConsentState;
-        try {
-          consent = JSON.parse(consentJson);
-        } catch {
-          consent = {
-            audio_analysis_consent: true,
-            external_ai_transfer_consent: false,
-            ai_audio_content_inspection_consent: false,
-            raw_audio_transfer_consent: false,
-            model_training_opt_in: false,
-            consent_timestamp: new Date().toISOString(),
-          };
-        }
-
-        const fallback = generatePhase1DemoReport({
-          interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
-          genre,
-          mix_stage: mixStage,
-          consent_state: consent,
-        });
-
         return {
           success: false,
-          source: 'offline_fallback',
-          report: fallback,
+          source: 'backend',
           statusCode: res.status,
           errorMessage: `Backend DSP report failed validation: ${validation.errors.join('; ')}`,
         };
@@ -144,65 +121,34 @@ export async function analyzeAudioWithDsp(
       let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
       try {
         const errJson = await res.json();
-        if (errJson.detail?.message) errMsg = errJson.detail.message;
+        if (errJson.detail?.message) {
+          errMsg = errJson.detail.message;
+        } else if (typeof errJson.detail === 'string') {
+          errMsg = errJson.detail;
+        }
       } catch {
         // ignore
       }
 
-      const genre = (formData.get('genre') as GenreId) || 'indie_rock';
-      const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
-      const consentJson = formData.get('consent_state_json') as string;
-      let consent: ConsentState;
-      try {
-        consent = JSON.parse(consentJson);
-      } catch {
-        consent = {
-          audio_analysis_consent: true,
-          external_ai_transfer_consent: false,
-          ai_audio_content_inspection_consent: false,
-          raw_audio_transfer_consent: false,
-          model_training_opt_in: false,
-          consent_timestamp: new Date().toISOString(),
-        };
-      }
-
-      const fallback = generatePhase1DemoReport({
-        interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
-        genre,
-        mix_stage: mixStage,
-        consent_state: consent,
-      });
-
       return {
         success: false,
-        source: 'offline_fallback',
-        report: fallback,
+        source: 'backend',
         statusCode: res.status,
         errorMessage: errMsg,
       };
     }
   } catch (err: any) {
-    const genre = (formData.get('genre') as GenreId) || 'indie_rock';
-    const mixStage = (formData.get('mix_stage') as MixStage) || 'unmastered_mix';
-    const fallback = generatePhase1DemoReport({
-      interface_mode: (formData.get('interface_mode') as InterfaceMode) || 'advanced',
-      genre,
-      mix_stage: mixStage,
-      consent_state: {
-        audio_analysis_consent: true,
-        external_ai_transfer_consent: false,
-        ai_audio_content_inspection_consent: false,
-        raw_audio_transfer_consent: false,
-        model_training_opt_in: false,
-        consent_timestamp: new Date().toISOString(),
-      },
-    });
-
+    if (err.name === 'AbortError') {
+      return {
+        success: false,
+        source: 'backend',
+        errorMessage: 'Analysis request was cancelled.',
+      };
+    }
     return {
       success: false,
-      source: 'offline_fallback',
-      report: fallback,
-      errorMessage: `Backend connection error (${err.message || 'offline'}).`,
+      source: 'backend',
+      errorMessage: `DSP analysis failed: ${err.message || 'Cannot reach backend server'}.`,
     };
   }
 }
