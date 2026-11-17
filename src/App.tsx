@@ -59,15 +59,8 @@ export default function App() {
   >('idle');
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const [reportSource, setReportSource] = useState<'backend' | 'offline_fallback'>('offline_fallback');
-  const [activeReport, setActiveReport] = useState<AnalysisReport>(() =>
-    generatePhase1DemoReport({
-      interface_mode: 'simple',
-      genre: 'indie_rock',
-      mix_stage: 'unmastered_mix',
-      consent_state: createDefaultConsentState(),
-    })
-  );
+  const [reportSource, setReportSource] = useState<'backend' | 'offline_fallback'>('backend');
+  const [activeReport, setActiveReport] = useState<AnalysisReport | null>(null);
   const [loadingReport, setLoadingReport] = useState<boolean>(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
@@ -134,6 +127,7 @@ export default function App() {
     }
 
     setSelectedFile(file);
+    setActiveReport(null);
     setIsAnalyzing(true);
     setAnalysisProgress(5);
     setAnalysisStageIndex(0);
@@ -215,9 +209,10 @@ export default function App() {
     runMixAnalysis(file, genre, mixStage);
   };
 
-  // Clear Selected File
+  // Clear Selected File and reset to clean empty state
   const handleClearFile = () => {
     setSelectedFile(null);
+    setActiveReport(null);
     setAnalysisStage('idle');
     setReportError(null);
   };
@@ -380,7 +375,7 @@ export default function App() {
               PHASE 1 FOUNDATION
             </span>
             <span aria-hidden="true">·</span>
-            <span>SHARED ENGINE CONTRACT v{activeReport.schema_version}</span>
+            <span>SHARED ENGINE CONTRACT v{activeReport?.schema_version || '2.0.0'}</span>
             <span aria-hidden="true">·</span>
             <span>GENRE: {GENRE_LABELS[genre]}</span>
             <span aria-hidden="true">·</span>
@@ -643,30 +638,12 @@ export default function App() {
                 setGenre(g);
                 if (selectedFile) {
                   runMixAnalysis(selectedFile, g, mixStage);
-                } else if (activeReport.is_demonstration_data) {
-                  setActiveReport(
-                    generatePhase1DemoReport({
-                      interface_mode: 'simple',
-                      genre: g,
-                      mix_stage: mixStage,
-                      consent_state: consent,
-                    })
-                  );
                 }
               }}
               onChangeMixStage={(st) => {
                 setMixStage(st);
                 if (selectedFile) {
                   runMixAnalysis(selectedFile, genre, st);
-                } else if (activeReport.is_demonstration_data) {
-                  setActiveReport(
-                    generatePhase1DemoReport({
-                      interface_mode: 'simple',
-                      genre,
-                      mix_stage: st,
-                      consent_state: consent,
-                    })
-                  );
                 }
               }}
               onSwitchToAdvanced={() => navigateTo('advanced')}
@@ -679,7 +656,6 @@ export default function App() {
               analysisStageIndex={analysisStageIndex}
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
-              onLoadDemonstration={handleLoadDemonstration}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
@@ -712,30 +688,12 @@ export default function App() {
                 setGenre(g);
                 if (selectedFile) {
                   runMixAnalysis(selectedFile, g, mixStage);
-                } else if (activeReport.is_demonstration_data) {
-                  setActiveReport(
-                    generatePhase1DemoReport({
-                      interface_mode: 'advanced',
-                      genre: g,
-                      mix_stage: mixStage,
-                      consent_state: consent,
-                    })
-                  );
                 }
               }}
               onChangeMixStage={(st) => {
                 setMixStage(st);
                 if (selectedFile) {
                   runMixAnalysis(selectedFile, genre, st);
-                } else if (activeReport.is_demonstration_data) {
-                  setActiveReport(
-                    generatePhase1DemoReport({
-                      interface_mode: 'advanced',
-                      genre,
-                      mix_stage: st,
-                      consent_state: consent,
-                    })
-                  );
                 }
               }}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
@@ -749,23 +707,34 @@ export default function App() {
               analysisStage={analysisStage}
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
-              onLoadDemonstration={handleLoadDemonstration}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
         )}
 
-        {route === 'architecture' && <ArchitectureHandoffView report={activeReport} />}
+        {route === 'architecture' && (
+          <ArchitectureHandoffView
+            report={
+              activeReport ||
+              generatePhase1DemoReport({
+                interface_mode: 'advanced',
+                genre: 'indie_rock',
+                mix_stage: 'unmastered_mix',
+                consent_state: createDefaultConsentState(),
+              })
+            }
+          />
+        )}
       </main>
 
       {/* Quiet Footer */}
       <footer className="border-t border-zinc-200 dark:border-zinc-800 px-6 py-5 bg-white dark:bg-zinc-950 text-xs text-zinc-500 dark:text-zinc-400">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
           <span>
-            MixLearn Studio · Phase 1 Architecture & Shared Contract Foundation
+            MixLearn Studio · Mathematical DSP Analysis Engine
           </span>
           <span className="font-mono">
-            Demonstration Data Explicitly Labeled · Default Training Opt-In: False
+            Pure Mathematical DSP · Default Training Opt-In: False
           </span>
         </div>
       </footer>

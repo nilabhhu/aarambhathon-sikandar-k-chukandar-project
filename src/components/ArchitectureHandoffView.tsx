@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   AnalysisReport,
-  validatePhase1AnalysisReport,
+  validateAnalysisReport,
 } from '../contracts/analysisContract';
 import {
   CheckCircle2,
@@ -38,7 +38,7 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
   const [probing, setProbing] = useState(false);
   const [probeResults, setProbeResults] = useState<EndpointProbeResult[] | null>(null);
 
-  const validation = validatePhase1AnalysisReport(report);
+  const validation = validateAnalysisReport(report);
 
   const runEndpointProbe = async () => {
     setProbing(true);

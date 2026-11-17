@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 
 interface AdvancedMixCheckViewProps {
-  report: AnalysisReport;
+  report: AnalysisReport | null;
   reportSource?: 'backend' | 'offline_fallback';
   genre: GenreId;
   mixStage: MixStage;
@@ -122,13 +122,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   onCancelAnalysis,
   onLoadDemonstration,
 }) => {
-  const firstIssue = report.issues[0];
+  const firstIssue = report?.issues?.[0];
   const [activeIssueId, setActiveIssueId] = useState<string | null>(firstIssue?.issue_id ?? null);
   const [activeTimestamp, setActiveTimestamp] = useState<{
     start_sec: number;
     end_sec: number;
     label: string;
-  } | null>(firstIssue?.timestamps[0] ?? null);
+  } | null>(firstIssue?.timestamps?.[0] ?? null);
   const [monoMode, setMonoMode] = useState(false);
 
   // Auto-start analysis immediately upon file pick
@@ -167,7 +167,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
     useState<StemSourceType>('user_uploaded_original');
 
   const stemValidation = validateStemSubmissions(stemCandidates);
-  const aiPayloadPreview = buildConsentGatedAiPayload(report);
+  const aiPayloadPreview = report ? buildConsentGatedAiPayload(report) : null;
 
   const handleAddStemCandidate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -197,37 +197,15 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
     ]);
   };
 
-  const objectiveIssues = report.issues.filter(
+  const objectiveIssues = report?.issues?.filter(
     (i) => i.classification === 'objective_technical'
-  );
-  const stylisticIssues = report.issues.filter(
+  ) || [];
+  const stylisticIssues = report?.issues?.filter(
     (i) => i.classification === 'subjective_stylistic'
-  );
+  ) || [];
 
   return (
     <div className="space-y-8">
-      {/* Mandatory Demonstration Data Disclosure Banner */}
-      <div
-        role="status"
-        data-testid="demo-data-banner-advanced"
-        className="border border-teal-800/30 dark:border-teal-500/30 bg-teal-50/70 dark:bg-teal-950/30 rounded-lg px-4 py-3 flex flex-wrap items-center justify-between gap-3"
-      >
-        <div className="text-xs text-zinc-800 dark:text-zinc-200">
-          <span className="font-mono font-semibold text-teal-900 dark:text-teal-300">
-            {!report.is_demonstration_data
-              ? '[MATHEMATICAL DSP ANALYSIS · REAL AUDIO MEASUREMENTS]'
-              : reportSource === 'backend'
-              ? '[DEMONSTRATION DATA · PHASE 1 FASTAPI BACKEND FIXTURE]'
-              : '[DEMONSTRATION DATA · PHASE 1 OFFLINE LOCAL FIXTURE]'}
-          </span>{' '}
-          {report.data_source_notice}
-        </div>
-        <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400 shrink-0">
-          <span>provenance: {reportSource === 'backend' ? 'fastapi' : 'offline-local'}</span>
-          <span aria-hidden="true">·</span>
-          <span>report_id: {report.report_id}</span>
-        </div>
-      </div>
 
       {/* Header & Workbench Controls with UI State Switcher */}
       <section
@@ -304,50 +282,112 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               />
 
               {selectedFile && (
-                <button
-                  type="button"
-                  onClick={handleReAnalyze}
-                  disabled={isAnalyzing}
-                  className="px-3 py-2 rounded-md bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1"
-                  title="Re-run DSP analysis with current genre/stage targets"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Re-Analyze</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleReAnalyze}
+                    disabled={isAnalyzing}
+                    className="px-3 py-2 rounded-md bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                    title="Re-run DSP analysis with current genre/stage targets"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-Analyze</span>
+                  </button>
+                  {onClearFile && (
+                    <button
+                      type="button"
+                      onClick={onClearFile}
+                      disabled={isAnalyzing}
+                      className="px-2.5 py-2 rounded-md border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium transition-colors"
+                      title="Clear and upload another track"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>
         </div>
 
-        {/* File Metadata Strip */}
-        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-mono tabular-nums text-zinc-600 dark:text-zinc-400">
-          <span className="inline-flex items-center gap-1.5 text-zinc-900 dark:text-zinc-100 font-medium">
-            <FileAudio className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
-            {report.file_metadata.filename}
-          </span>
-          <span>Format: {report.file_metadata.format}</span>
-          <span>Sample Rate: {report.file_metadata.sample_rate_hz} Hz</span>
-          <span>Bit Depth: {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float'}</span>
-          <span>Channels: {report.file_metadata.channels} ({report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'})</span>
-          <span>Duration: {formatTimecode(report.file_metadata.duration_seconds)}</span>
-          <span>Checksum: {report.file_metadata.sha256_checksum.slice(0, 12)}...</span>
-        </div>
+        {/* File Metadata Strip (Rendered only when a real report is active) */}
+        {report && (
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs font-mono tabular-nums text-zinc-600 dark:text-zinc-400">
+            <span className="inline-flex items-center gap-1.5 text-zinc-900 dark:text-zinc-100 font-medium">
+              <FileAudio className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+              {report.file_metadata.filename}
+            </span>
+            <span>Format: {report.file_metadata.format}</span>
+            <span>Sample Rate: {report.file_metadata.sample_rate_hz} Hz</span>
+            <span>Bit Depth: {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float'}</span>
+            <span>Channels: {report.file_metadata.channels} ({report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'})</span>
+            <span>Duration: {formatTimecode(report.file_metadata.duration_seconds)}</span>
+            <span>Checksum: {report.file_metadata.sha256_checksum.slice(0, 12)}...</span>
+          </div>
+        )}
       </section>
 
       {/* STEP 3: Animated DSP Analysis Loading Screen */}
       {isAnalyzing && (
         <DspAnalysisLoadingScreen
-          fileName={selectedFile?.name || report.file_metadata.filename}
-          fileSizeBytes={selectedFile?.size || report.file_metadata.file_size_bytes}
+          fileName={selectedFile?.name || 'Uploaded Audio'}
+          fileSizeBytes={selectedFile?.size || 0}
           genre={genre}
           progressPercent={analysisProgress}
           stageIndex={analysisStageIndex}
         />
       )}
 
-      {/* Main Analysis Results (Hidden while isAnalyzing) */}
-      {!isAnalyzing && (
+      {/* Clean Empty State Prompt Card */}
+      {!report && !isAnalyzing && (
+        <section
+          role="region"
+          aria-label="No Audio Loaded"
+          data-testid="advanced-empty-state"
+          className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-lg bg-white dark:bg-zinc-900 p-12 text-center space-y-4 shadow-xs"
+        >
+          <div className="w-14 h-14 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-400 mx-auto flex items-center justify-center">
+            <Activity className="w-7 h-7" />
+          </div>
+          <div className="max-w-md mx-auto space-y-1.5">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+              No Audio Loaded Yet
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Select your genre, choose Unmastered Mix or Final Master, and upload your audio bounce (.WAV, .FLAC, .AIFF, or .MP3) above to run real DSP analysis.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Main Analysis Results (Hidden while isAnalyzing, rendered only with real report) */}
+      {!isAnalyzing && report && (
         <>
+          {/* Active Track Control Bar with Clear/Upload Another Track button */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 text-xs">
+            <div className="flex items-center gap-2 text-zinc-800 dark:text-zinc-200">
+              <FileAudio className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
+              <span className="font-semibold font-mono">{report.file_metadata.filename}</span>
+              <span className="text-zinc-400">·</span>
+              <span className="font-mono text-zinc-500">
+                {report.file_metadata.duration_seconds.toFixed(1)}s ·{' '}
+                {(report.file_metadata.file_size_bytes / (1024 * 1024)).toFixed(1)} MB ·{' '}
+                {report.file_metadata.sample_rate_hz} Hz ·{' '}
+                {report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}
+              </span>
+            </div>
+            {onClearFile && (
+              <button
+                type="button"
+                onClick={onClearFile}
+                className="px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium transition-colors inline-flex items-center gap-1 shrink-0"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Clear / Upload Another Track</span>
+              </button>
+            )}
+          </div>
+
           {/* Functional Waveform & Clickable Issue Timestamps */}
           <WaveformInspector
             durationSeconds={report.file_metadata.duration_seconds}
@@ -920,13 +960,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
               <div className="border border-zinc-200 dark:border-zinc-800 rounded-md bg-white dark:bg-zinc-950 p-4">
                 <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-                  PHASE 5 · CONSENT GATE: {aiPayloadPreview.allowed ? 'OPTED IN' : 'BLOCKED'}
+                  PHASE 5 · CONSENT GATE: {aiPayloadPreview?.allowed ? 'OPTED IN' : 'BLOCKED'}
                 </div>
                 <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
                   Consent-Controlled AI
                 </h3>
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5 leading-relaxed">
-                  {aiPayloadPreview.reason}
+                  {aiPayloadPreview?.reason}
                 </p>
               </div>
             </div>

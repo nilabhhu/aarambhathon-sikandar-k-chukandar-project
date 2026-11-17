@@ -11,16 +11,17 @@ import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import {
   Upload,
   ArrowRight,
-  Shield,
   Volume2,
   Activity,
   Layers,
   Sliders,
   RotateCcw,
+  X,
+  FileAudio,
 } from 'lucide-react';
 
 interface SimpleMixCheckViewProps {
-  report: AnalysisReport;
+  report: AnalysisReport | null;
   reportSource?: 'backend' | 'offline_fallback';
   genre: GenreId;
   mixStage: MixStage;
@@ -37,41 +38,63 @@ interface SimpleMixCheckViewProps {
   analysisStageIndex?: number;
   errorMessage?: string | null;
   onCancelAnalysis?: () => void;
-  onLoadDemonstration?: () => void;
 }
 
 export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   report,
-  reportSource,
   genre,
   mixStage,
-  consent,
   onChangeGenre,
   onChangeMixStage,
   onAnalyzeAudioFile,
   onSwitchToAdvanced,
   selectedFile = null,
   onSelectFile,
+  onClearFile,
   isAnalyzing = false,
   analysisProgress = 0,
   analysisStageIndex = 0,
-  errorMessage = null,
-  onLoadDemonstration,
 }) => {
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
-    report.issues[0]?.issue_id ?? null
+    report?.issues?.[0]?.issue_id ?? null
   );
   const [activeTimestamp, setActiveTimestamp] = useState<{
     start_sec: number;
     end_sec: number;
     label: string;
-  } | null>(report.issues[0]?.timestamps[0] ?? null);
+  } | null>(report?.issues?.[0]?.timestamps?.[0] ?? null);
   const [monoMode, setMonoMode] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Auto-start analysis immediately when file is picked
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (!file) return;
+    if (onSelectFile) {
+      onSelectFile(file);
+    } else if (onAnalyzeAudioFile) {
+      onAnalyzeAudioFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
     if (!file) return;
     if (onSelectFile) {
       onSelectFile(file);
@@ -93,7 +116,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   const isUnmastered = mixStage === 'unmastered_mix';
 
   // --- Metric 1: Loudness (LUFS) ---
-  const lufsVal = report.measurements?.integrated_loudness?.value;
+  const lufsVal = report?.measurements?.integrated_loudness?.value;
   const lufsMin = isUnmastered ? -18.0 : -14.0;
   const lufsMax = isUnmastered ? -14.0 : -9.0;
   const lufsBadge =
@@ -106,7 +129,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       : { label: 'TOO QUIET', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' };
 
   // --- Metric 2: True Peak Headroom (dBTP) ---
-  const tpVal = report.measurements?.true_peak_max?.value;
+  const tpVal = report?.measurements?.true_peak_max?.value;
   const tpTarget = isUnmastered ? -3.0 : -1.0;
   const tpBadge =
     tpVal === null || tpVal === undefined
@@ -116,9 +139,9 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       : { label: 'CLIPPING RISK', color: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' };
 
   // --- Metric 3: Mono & Phase Safety ---
-  const isMono = report.file_metadata.channels === 1;
-  const phaseCorr = report.measurements?.phase_correlation_mean?.value;
-  const phaseMin = report.measurements?.phase_correlation_min?.value;
+  const isMono = report ? report.file_metadata.channels === 1 : false;
+  const phaseCorr = report?.measurements?.phase_correlation_mean?.value;
+  const phaseMin = report?.measurements?.phase_correlation_min?.value;
   const phaseBadge = isMono
     ? { label: 'MONO SAFE', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' }
     : phaseMin !== null && phaseMin !== undefined && phaseMin < 0.0
@@ -128,7 +151,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
     : { label: 'CHECK PHASE', color: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' };
 
   // --- Metric 4: Crest / Dynamics ---
-  const crestVal = report.measurements?.crest_factor?.value;
+  const crestVal = report?.measurements?.crest_factor?.value;
   const crestBadge =
     crestVal === null || crestVal === undefined
       ? { label: 'NO SIGNAL', color: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400' }
@@ -139,28 +162,10 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       : { label: 'VERY DYNAMIC', color: 'bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300' };
 
   // Max 3 prioritized action cards
-  const topRecommendations = report.recommendations.slice(0, 3);
+  const topRecommendations = report ? report.recommendations.slice(0, 3) : [];
 
   return (
     <div className="space-y-6">
-      {/* Demonstration Banner only rendered when viewing unanalyzed demonstration fixture */}
-      {report.is_demonstration_data && (
-        <div
-          role="status"
-          data-testid="demo-data-banner-simple"
-          className="border border-teal-800/30 dark:border-teal-500/30 bg-teal-50/70 dark:bg-teal-950/30 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-800 dark:text-zinc-200"
-        >
-          <div>
-            <span className="font-semibold text-teal-900 dark:text-teal-300 font-mono mr-1.5">
-              {reportSource === 'backend'
-                ? '[DEMONSTRATION DATA · FASTAPI BACKEND]'
-                : '[DEMONSTRATION DATA · OFFLINE]'}
-            </span>
-            <span>Upload your own song to run real in-browser mathematical DSP analysis.</span>
-          </div>
-        </div>
-      )}
-
       {/* Header & Controls Section */}
       <section
         aria-label="Simple Mix Check Configuration"
@@ -246,28 +251,51 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             <div className="flex items-center gap-2">
               <label
                 htmlFor="simple-audio-upload"
-                className="flex-1 flex items-center justify-between gap-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 px-3 py-2 text-xs text-zinc-700 dark:text-zinc-300 hover:border-teal-700 cursor-pointer transition-colors truncate"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`flex-1 flex items-center justify-between gap-2 rounded-lg border border-dashed px-3 py-2 text-xs cursor-pointer transition-colors truncate ${
+                  isDragOver
+                    ? 'border-teal-600 bg-teal-50 dark:bg-teal-950/40 text-teal-900 dark:text-teal-200'
+                    : selectedFile
+                    ? 'border-teal-700 dark:border-teal-600 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200'
+                    : 'border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-950 text-zinc-500 hover:border-teal-700'
+                }`}
               >
                 <span className="truncate font-mono">
-                  {selectedFile ? selectedFile.name : report.file_metadata.filename}
+                  {selectedFile ? selectedFile.name : 'Choose Audio File (.wav, .flac, .aiff, .mp3)'}
                 </span>
                 <span className="inline-flex items-center gap-1 font-semibold text-teal-800 dark:text-teal-400 shrink-0">
                   <Upload className="w-3.5 h-3.5" />
-                  <span>Choose File</span>
+                  <span>{selectedFile ? 'Change' : 'Browse'}</span>
                 </span>
               </label>
 
               {selectedFile && (
-                <button
-                  type="button"
-                  onClick={handleReAnalyze}
-                  disabled={isAnalyzing}
-                  className="px-3 py-2 rounded-lg bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1"
-                  title="Re-run DSP analysis with current genre/stage targets"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Re-Analyze</span>
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleReAnalyze}
+                    disabled={isAnalyzing}
+                    className="px-3 py-2 rounded-lg bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                    title="Re-run DSP analysis with current genre/stage targets"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-Analyze</span>
+                  </button>
+                  {onClearFile && (
+                    <button
+                      type="button"
+                      onClick={onClearFile}
+                      disabled={isAnalyzing}
+                      className="px-2.5 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium transition-colors inline-flex items-center gap-1"
+                      title="Clear and upload another track"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Clear</span>
+                    </button>
+                  )}
+                </div>
               )}
             </div>
             <input
@@ -285,17 +313,64 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
       {/* STEP 3: Animated DSP Analysis Loading Screen */}
       {isAnalyzing && (
         <DspAnalysisLoadingScreen
-          fileName={selectedFile?.name || report.file_metadata.filename}
-          fileSizeBytes={selectedFile?.size || report.file_metadata.file_size_bytes}
+          fileName={selectedFile?.name || 'Uploaded Audio'}
+          fileSizeBytes={selectedFile?.size || 0}
           genre={genre}
           progressPercent={analysisProgress}
           stageIndex={analysisStageIndex}
         />
       )}
 
-      {/* Main Analysis Results (Hidden while isAnalyzing) */}
-      {!isAnalyzing && (
+      {/* Clean Empty State Prompt Card (When no audio file has been analyzed yet) */}
+      {!report && !isAnalyzing && (
+        <section
+          role="region"
+          aria-label="No Audio Loaded"
+          data-testid="simple-empty-state"
+          className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/60 p-12 text-center space-y-4 shadow-xs"
+        >
+          <div className="w-14 h-14 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-400 mx-auto flex items-center justify-center">
+            <Volume2 className="w-7 h-7" />
+          </div>
+          <div className="max-w-md mx-auto space-y-1.5">
+            <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+              No Audio Loaded Yet
+            </h2>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+              Select your genre, choose Unmastered Mix or Final Master, and upload your audio bounce (.WAV, .FLAC, .AIFF, or .MP3) above to run real DSP analysis.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Main Analysis Results (Rendered only when real report is present and not analyzing) */}
+      {report && !isAnalyzing && (
         <>
+          {/* Active Track Control Bar with Clear/Upload Another Track button */}
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 rounded-lg bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900/50 text-xs">
+            <div className="flex items-center gap-2 text-zinc-800 dark:text-zinc-200">
+              <FileAudio className="w-4 h-4 text-teal-700 dark:text-teal-400 shrink-0" />
+              <span className="font-semibold font-mono">{report.file_metadata.filename}</span>
+              <span className="text-zinc-400">·</span>
+              <span className="font-mono text-zinc-500">
+                {report.file_metadata.duration_seconds.toFixed(1)}s ·{' '}
+                {(report.file_metadata.file_size_bytes / (1024 * 1024)).toFixed(1)} MB ·{' '}
+                {report.file_metadata.sample_rate_hz} Hz ·{' '}
+                {report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}
+              </span>
+            </div>
+            {onClearFile && (
+              <button
+                type="button"
+                onClick={onClearFile}
+                className="px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-white dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-medium transition-colors inline-flex items-center gap-1 shrink-0"
+              >
+                <X className="w-3 h-3" />
+                <span>Clear / Upload Another Track</span>
+              </button>
+            )}
+          </div>
+
           {/* Audio Waveform Inspector */}
           <WaveformInspector
             durationSeconds={report.file_metadata.duration_seconds}

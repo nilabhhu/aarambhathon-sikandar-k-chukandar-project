@@ -39,7 +39,11 @@ class CDPClient {
               this.consoleErrors.push(data.params.args.map((a) => a.value || a.description).join(' '));
             }
           } else if (data.method === 'Runtime.exceptionThrown') {
-            this.consoleErrors.push(data.params.exceptionDetails?.text || 'Uncaught error');
+            this.consoleErrors.push(
+              data.params.exceptionDetails?.exception?.description ||
+              data.params.exceptionDetails?.text ||
+              'Uncaught error'
+            );
           }
           this.events.push(data);
         }
@@ -129,8 +133,8 @@ async function runBrowserAcceptanceTests() {
       send: (method, params = {}) => browserClient.send(method, params, sessionId),
       eval: async (expr) => {
         let code = expr.trim();
-        if (code.includes('return ') && !code.startsWith('(() =>') && !code.startsWith('(function')) {
-          code = `(() => { ${code} })()`;
+        if (!code.startsWith('(() =>') && !code.startsWith('(function')) {
+          code = `(() => { ${code.includes('return ') || code.includes('const ') || code.includes('let ') || code.includes(';') ? code : 'return ' + code} })()`;
         }
         const res = await browserClient.send('Runtime.evaluate', { expression: code, returnByValue: true, awaitPromise: true }, sessionId);
         if (res.exceptionDetails) {
@@ -155,7 +159,7 @@ async function runBrowserAcceptanceTests() {
     await page.send('DOM.enable');
 
     // Wait for initial page hydration
-    await page.wait(2000);
+    await page.wait(3000);
 
     // ----------------------------------------------------
     // TEST SUITE 1: HOME PAGE & GLOBAL SHELL
@@ -196,13 +200,16 @@ async function runBrowserAcceptanceTests() {
     const simpleHeader = await page.eval('document.querySelector("h1")?.textContent?.trim()');
     assert(simpleHeader === 'Simple Mix Check', `Header title is "Simple Mix Check" (actual: "${simpleHeader}")`);
 
-    const simpleDemoBanner = await page.eval('document.querySelector("[data-testid=\'demo-data-banner-simple\']")?.textContent');
-    assert(simpleDemoBanner && simpleDemoBanner.includes('DEMONSTRATION DATA'), 'Demo data disclosure banner is prominently rendered');
-    assert(simpleDemoBanner.includes('FASTAPI') || simpleDemoBanner.includes('OFFLINE'), 'Provenance (FastAPI Backend or Offline) is indicated');
+    // Verify Clean Empty State on open (No preloaded dummy fixture)
+    const simpleEmptyState = await page.eval('!!document.querySelector("[data-testid=\'simple-empty-state\']")');
+    assert(simpleEmptyState, 'Clean empty state ("No Audio Loaded Yet") is displayed when /simple opens');
+
+    const hasDemoBannerSimple = await page.eval('!!document.querySelector("[data-testid=\'demo-data-banner-simple\']")');
+    assert(!hasDemoBannerSimple, 'Zero dummy demonstration data banners rendered in Simple view');
 
     // Test Genre selector
     await page.eval(`
-      const sel = document.querySelector("select");
+      const sel = document.querySelector("#simple-genre-select");
       if (sel) {
         sel.value = "electronic_club";
         sel.dispatchEvent(new Event("change", { bubbles: true }));
@@ -221,6 +228,45 @@ async function runBrowserAcceptanceTests() {
     const stageUpdated = await page.eval('document.body.innerText.includes("FINAL MASTER") || document.body.innerText.includes("Final Master")');
     assert(stageUpdated, 'Mix stage switch to "Final Master" updates interface context');
 
+    // Test Audio File Upload & Real DSP Analysis Execution
+    console.log('  ℹ Testing Audio File Upload & Real Mathematical DSP Pipeline...');
+    await page.eval(`
+      const sampleRate = 44100;
+      const numSamples = sampleRate;
+      const buffer = new ArrayBuffer(44 + numSamples * 4);
+      const view = new DataView(buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + numSamples * 4, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 2, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 4, true);
+      view.setUint16(32, 4, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, numSamples * 4, true);
+      for (let i = 0; i < numSamples; i++) {
+        const sample = Math.sin(2 * Math.PI * 440 * (i / sampleRate)) * 16000;
+        view.setInt16(44 + i * 4, sample, true);
+        view.setInt16(44 + i * 4 + 2, sample, true);
+      }
+      const testFile = new File([buffer], 'test_song_bounce.wav', { type: 'audio/wav' });
+      const input = document.querySelector('#simple-audio-upload');
+      const dt = new DataTransfer();
+      dt.items.add(testFile);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+
+    // Wait for DSP analysis to complete (minimum 2.4s animation duration)
+    await page.wait(3400);
+
     // Verify 4-step action cards
     const stepsCheck = await page.eval(`
       const upper = document.body.innerText.toUpperCase();
@@ -234,6 +280,15 @@ async function runBrowserAcceptanceTests() {
     const has4Steps = stepsCheck.detected && stepsCheck.matters && stepsCheck.tryDAW && stepsCheck.verify;
     assert(has4Steps, 'Simple Mix Check features all 4 steps of beginner educational learning loop');
 
+    // Test Clear / Upload Another Track button resets to Clean Empty State
+    await page.eval(`
+      const clearBtn = Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("Clear"));
+      if (clearBtn) clearBtn.click();
+    `);
+    await page.wait(800);
+    const resetEmptyState = await page.eval('!!document.querySelector("[data-testid=\'simple-empty-state\']")');
+    assert(resetEmptyState, 'Clicking "Clear / Upload Another Track" resets Simple view to clean empty state');
+
     // ----------------------------------------------------
     // TEST SUITE 3: ADVANCED MIX CHECK ROUTE (/advanced)
     // ----------------------------------------------------
@@ -244,8 +299,49 @@ async function runBrowserAcceptanceTests() {
     const advancedHeader = await page.eval('document.querySelector("h1")?.textContent?.trim()');
     assert(advancedHeader?.includes('Advanced Mix Check'), `Header title contains "Advanced Mix Check" (actual: "${advancedHeader}")`);
 
-    const advancedDemoBanner = await page.eval('document.querySelector("[data-testid=\'demo-data-banner-advanced\']")?.textContent');
-    assert(advancedDemoBanner && advancedDemoBanner.includes('DEMONSTRATION DATA'), 'Demo data disclosure banner is prominently rendered in Advanced view');
+    // Verify Clean Empty State on open
+    const advancedEmptyState = await page.eval('!!document.querySelector("[data-testid=\'advanced-empty-state\']")');
+    assert(advancedEmptyState, 'Clean empty state ("No Audio Loaded Yet") is displayed when /advanced opens');
+
+    const hasDemoBannerAdvanced = await page.eval('!!document.querySelector("[data-testid=\'demo-data-banner-advanced\']")');
+    assert(!hasDemoBannerAdvanced, 'Zero dummy demonstration data banners rendered in Advanced view');
+
+    // Upload audio bounce in Advanced View
+    console.log('  ℹ Uploading audio bounce to Advanced Mix Check...');
+    await page.eval(`
+      const sampleRate = 44100;
+      const numSamples = sampleRate;
+      const buffer = new ArrayBuffer(44 + numSamples * 4);
+      const view = new DataView(buffer);
+      const writeString = (offset, str) => {
+        for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+      };
+      writeString(0, 'RIFF');
+      view.setUint32(4, 36 + numSamples * 4, true);
+      writeString(8, 'WAVE');
+      writeString(12, 'fmt ');
+      view.setUint32(16, 16, true);
+      view.setUint16(20, 1, true);
+      view.setUint16(22, 2, true);
+      view.setUint32(24, sampleRate, true);
+      view.setUint32(28, sampleRate * 4, true);
+      view.setUint16(32, 4, true);
+      view.setUint16(34, 16, true);
+      writeString(36, 'data');
+      view.setUint32(40, numSamples * 4, true);
+      for (let i = 0; i < numSamples; i++) {
+        const sample = Math.sin(2 * Math.PI * 440 * (i / sampleRate)) * 16000;
+        view.setInt16(44 + i * 4, sample, true);
+        view.setInt16(44 + i * 4 + 2, sample, true);
+      }
+      const testFile = new File([buffer], 'test_adv_bounce.wav', { type: 'audio/wav' });
+      const input = document.querySelector('#adv-audio-upload');
+      const dt = new DataTransfer();
+      dt.items.add(testFile);
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    `);
+    await page.wait(3400);
 
     // Verify 14 DSP measurements with standardized engineering units
     const dspUnitsPresent = await page.eval(`
@@ -257,21 +353,14 @@ async function runBrowserAcceptanceTests() {
     `);
     assert(dspUnitsPresent, 'Standardized mathematical DSP units (LUFS, dBTP, LU, dB) are displayed');
 
-    // Verify synthetic waveform envelope disclosure
-    const syntheticWaveformNotice = await page.eval(`
+    // Verify waveform envelope disclosure
+    const waveformNotice = await page.eval(`
       const text = document.body.innerText;
-      return text.includes("SYNTHETIC DEMO ENVELOPE") &&
-             text.includes("No real audio playback engine");
+      return text.includes("MATHEMATICAL DSP TIMELINE") ||
+             text.includes("MEASURED ENVELOPE") ||
+             text.includes("DSP Time-Domain Waveform");
     `);
-    assert(syntheticWaveformNotice, 'Synthetic waveform envelope and no-audio-playback notice are explicitly displayed');
-
-    // Test Stereo / Mono toggle labels
-    const curveLabelsPresent = await page.eval(`
-      const text = document.body.innerText;
-      return text.includes("Visual Simulation: Stereo Curve") ||
-             text.includes("Visual Simulation: Mono Sum Curve");
-    `);
-    assert(curveLabelsPresent, 'Curve toggle explicitly describes simulated visual curves, not audio auditioning');
+    assert(waveformNotice, 'Mathematical DSP waveform timeline is rendered for uploaded audio');
 
     // Test Rule 1: Stem source boundary (Reject AI Stem Splitting)
     console.log('  ℹ Testing Rule 1 Original-Stem Validator in UI...');
