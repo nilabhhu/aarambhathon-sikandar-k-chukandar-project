@@ -184,7 +184,9 @@ function computeBandEnergies(
   sampleRate: number
 ): {
   subBass: number | null;
+  bass: number | null;
   mud: number | null;
+  mid: number | null;
   presence: number | null;
   air: number | null;
   airUnavailableReason: string | null;
@@ -198,7 +200,9 @@ function computeBandEnergies(
   const numBlocks = Math.max(1, Math.floor((n - fftSize) / hopSize) + 1);
 
   let subBassSum = 0;
+  let bassSum = 0;
   let mudSum = 0;
+  let midSum = 0;
   let presenceSum = 0;
   let airSum = 0;
   let totalBlocks = 0;
@@ -215,25 +219,34 @@ function computeBandEnergies(
 
   const bSub0 = getBin(20);
   const bSub1 = getBin(60);
+  const bBass0 = getBin(60);
+  const bBass1 = getBin(200);
   const bMud0 = getBin(200);
   const bMud1 = getBin(500);
+  const bMid0 = getBin(500);
+  const bMid1 = getBin(2000);
   const bPres0 = getBin(2000);
   const bPres1 = getBin(5000);
   const bAir0 = getBin(10000);
   const bAir1 = getBin(20000);
 
-  // Sample evenly up to 16 blocks across audio to keep analysis instant
-  const step = Math.max(1, Math.floor(numBlocks / 16));
+  // Sample evenly up to 24 blocks across audio
+  const step = Math.max(1, Math.floor(numBlocks / 24));
   for (let blk = 0; blk < numBlocks; blk += step) {
     const start = blk * hopSize;
-    // Goertzel or simple Discrete Fourier transform on target bins
-    let bSub = 0, bMud = 0, bPres = 0, bAir = 0;
+    let bSub = 0, bBass = 0, bMud = 0, bMid = 0, bPres = 0, bAir = 0;
 
     for (let bin = bSub0; bin <= bSub1; bin++) {
       bSub += calculateBinPower(channel0, start, fftSize, bin, hann);
     }
+    for (let bin = bBass0; bin <= bBass1; bin++) {
+      bBass += calculateBinPower(channel0, start, fftSize, bin, hann);
+    }
     for (let bin = bMud0; bin <= bMud1; bin++) {
       bMud += calculateBinPower(channel0, start, fftSize, bin, hann);
+    }
+    for (let bin = bMid0; bin <= bMid1; bin++) {
+      bMid += calculateBinPower(channel0, start, fftSize, bin, hann);
     }
     for (let bin = bPres0; bin <= bPres1; bin++) {
       bPres += calculateBinPower(channel0, start, fftSize, bin, hann);
@@ -245,7 +258,9 @@ function computeBandEnergies(
     }
 
     subBassSum += bSub;
+    bassSum += bBass;
     mudSum += bMud;
+    midSum += bMid;
     presenceSum += bPres;
     airSum += bAir;
     totalBlocks++;
@@ -260,7 +275,9 @@ function computeBandEnergies(
 
   return {
     subBass: toDb(subBassSum),
+    bass: toDb(bassSum),
     mud: toDb(mudSum),
+    mid: toDb(midSum),
     presence: toDb(presenceSum),
     air: airUnavailable ? null : toDb(airSum),
     airUnavailableReason: airUnavailable,
@@ -726,6 +743,25 @@ export async function analyzeAudioWithClientWebAudio(
       if (corrList.length > 0) {
         phaseCorrMean = corrList.reduce((a, b) => a + b, 0) / corrList.length;
         phaseCorrMin = Math.min(...corrList);
+      }
+
+      // Sub-140 Hz low-end phase correlation (critical for club PAs and subwoofers)
+      const rc140 = 1.0 / (2.0 * Math.PI * 140.0);
+      const dt140 = 1.0 / sampleRate;
+      const alpha140 = dt140 / (rc140 + dt140);
+      let lpL = 0, lpR = 0;
+      let sumSubLL = 0, sumSubRR = 0, sumSubLR = 0;
+      for (let i = 0; i < numSamples; i++) {
+        lpL += alpha140 * (left[i] - lpL);
+        lpR += alpha140 * (right[i] - lpR);
+        sumSubLL += lpL * lpL;
+        sumSubRR += lpR * lpR;
+        sumSubLR += lpL * lpR;
+      }
+      const subDenom = Math.sqrt(sumSubLL * sumSubRR);
+      const sub140HzCorr = subDenom > 1e-9 ? sumSubLR / subDenom : 1.0;
+      if (sub140HzCorr < 0.6 && (phaseCorrMin === null || sub140HzCorr < phaseCorrMin)) {
+        phaseCorrMin = sub140HzCorr;
       }
 
       const rmsMid = Math.sqrt(sumSqMid / numSamples);

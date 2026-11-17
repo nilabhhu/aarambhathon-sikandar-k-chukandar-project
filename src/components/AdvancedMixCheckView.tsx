@@ -11,6 +11,7 @@ import {
 } from '../contracts/analysisContract';
 import { GENRE_LABELS, MIX_STAGE_LABELS } from '../contracts/demoFixtures';
 import { WaveformInspector, formatTimecode } from './WaveformInspector';
+import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -24,6 +25,8 @@ import {
   FileText,
   Clock,
   Sparkles,
+  Upload,
+  RotateCcw,
 } from 'lucide-react';
 
 interface AdvancedMixCheckViewProps {
@@ -39,6 +42,9 @@ interface AdvancedMixCheckViewProps {
   selectedFile?: File | null;
   onSelectFile?: (file: File) => void;
   onClearFile?: () => void;
+  isAnalyzing?: boolean;
+  analysisProgress?: number;
+  analysisStageIndex?: number;
   analysisStage?: 'idle' | 'selected' | 'uploading' | 'analyzing' | 'complete' | 'failed';
   errorMessage?: string | null;
   onCancelAnalysis?: () => void;
@@ -108,6 +114,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   selectedFile = null,
   onSelectFile,
   onClearFile,
+  isAnalyzing = false,
+  analysisProgress = 0,
+  analysisStageIndex = 0,
   analysisStage = 'idle',
   errorMessage = null,
   onCancelAnalysis,
@@ -121,6 +130,23 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
     label: string;
   } | null>(firstIssue?.timestamps[0] ?? null);
   const [monoMode, setMonoMode] = useState(false);
+
+  // Auto-start analysis immediately upon file pick
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (onSelectFile) {
+      onSelectFile(file);
+    } else if (onAnalyzeAudioFile) {
+      onAnalyzeAudioFile(file);
+    }
+  };
+
+  const handleReAnalyze = () => {
+    if (selectedFile && onAnalyzeAudioFile) {
+      onAnalyzeAudioFile(selectedFile);
+    }
+  };
 
   // Interactive Rule 1 Stem Source Boundary Tester
   const [stemCandidates, setStemCandidates] = useState<StemSubmissionCandidate[]>([
@@ -256,6 +282,40 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 </button>
               ))}
             </div>
+
+            {/* Audio Bounce Upload & Re-Analyze */}
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="adv-audio-upload"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-md border border-dashed border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:border-teal-700 cursor-pointer transition-colors shrink-0"
+              >
+                <Upload className="w-3.5 h-3.5 text-teal-700 dark:text-teal-400" />
+                <span className="truncate max-w-[140px] font-mono">
+                  {selectedFile ? selectedFile.name : 'Upload Audio'}
+                </span>
+              </label>
+              <input
+                id="adv-audio-upload"
+                type="file"
+                accept=".wav,.flac,.aiff,.mp3,.ogg,audio/*"
+                onChange={handleFileChange}
+                className="sr-only"
+                disabled={isAnalyzing}
+              />
+
+              {selectedFile && (
+                <button
+                  type="button"
+                  onClick={handleReAnalyze}
+                  disabled={isAnalyzing}
+                  className="px-3 py-2 rounded-md bg-teal-800 hover:bg-teal-900 text-white text-xs font-semibold transition-colors disabled:opacity-50 shrink-0 inline-flex items-center gap-1"
+                  title="Re-run DSP analysis with current genre/stage targets"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Re-Analyze</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -274,45 +334,37 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
         </div>
       </section>
 
-      {/* In-flight DSP Processing Banner */}
-      {(analysisStage === 'uploading' || analysisStage === 'analyzing') && (
-        <section className="border border-teal-200 dark:border-teal-800 rounded-lg p-6 bg-teal-50/70 dark:bg-teal-950/40 text-center space-y-3">
-          <div className="w-8 h-8 border-2 border-teal-800 border-t-transparent rounded-full animate-spin mx-auto" />
-          <h2 className="text-base font-semibold text-teal-950 dark:text-teal-200">
-            {analysisStage === 'uploading' ? 'Uploading audio stream to ephemeral workspace...' : 'Executing FFmpeg & SciPy mathematical DSP...'}
-          </h2>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 font-mono max-w-md mx-auto">
-            Computing EBU R128 loudness, true peak oversampling (4x ISP), crest factor, and Welch PSD.
-          </p>
-          {onCancelAnalysis && (
-            <button
-              type="button"
-              onClick={onCancelAnalysis}
-              className="px-3 py-1.5 rounded text-xs text-red-700 dark:text-red-400 border border-red-300 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-950/50"
-            >
-              Cancel Analysis
-            </button>
-          )}
-        </section>
+      {/* STEP 3: Animated DSP Analysis Loading Screen */}
+      {isAnalyzing && (
+        <DspAnalysisLoadingScreen
+          fileName={selectedFile?.name || report.file_metadata.filename}
+          fileSizeBytes={selectedFile?.size || report.file_metadata.file_size_bytes}
+          genre={genre}
+          progressPercent={analysisProgress}
+          stageIndex={analysisStageIndex}
+        />
       )}
 
-      {/* Functional Waveform & Clickable Issue Timestamps */}
-      <WaveformInspector
-        durationSeconds={report.file_metadata.duration_seconds}
-        issues={report.issues}
-        activeIssueId={activeIssueId}
-        activeTimestamp={activeTimestamp}
-        onSelectTimestamp={(issueId, ts) => {
-          setActiveIssueId(issueId);
-          setActiveTimestamp(ts);
-        }}
-        monoMode={monoMode}
-        onToggleMono={() => setMonoMode((m) => !m)}
-        isUnmastered={mixStage === 'unmastered_mix'}
-        timeline={report.timeline}
-        isDemonstrationData={report.is_demonstration_data}
-        audioFile={audioFile || selectedFile}
-      />
+      {/* Main Analysis Results (Hidden while isAnalyzing) */}
+      {!isAnalyzing && (
+        <>
+          {/* Functional Waveform & Clickable Issue Timestamps */}
+          <WaveformInspector
+            durationSeconds={report.file_metadata.duration_seconds}
+            issues={report.issues}
+            activeIssueId={activeIssueId}
+            activeTimestamp={activeTimestamp}
+            onSelectTimestamp={(issueId, ts) => {
+              setActiveIssueId(issueId);
+              setActiveTimestamp(ts);
+            }}
+            monoMode={monoMode}
+            onToggleMono={() => setMonoMode((m) => !m)}
+            isUnmastered={mixStage === 'unmastered_mix'}
+            timeline={report.timeline}
+            isDemonstrationData={report.is_demonstration_data}
+            audioFile={audioFile || selectedFile}
+          />
 
           {/* Categorized DSP Metric Sections (Loudness, Peaks, Dynamics, Frequency, Stereo) */}
           <section
@@ -879,6 +931,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </div>
           </section>
+        </>
+      )}
     </div>
   );
 };

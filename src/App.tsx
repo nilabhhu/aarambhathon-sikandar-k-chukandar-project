@@ -51,6 +51,9 @@ export default function App() {
 
   // File Upload & Lifecycle States
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analysisProgress, setAnalysisProgress] = useState<number>(0);
+  const [analysisStageIndex, setAnalysisStageIndex] = useState<number>(0);
   const [analysisStage, setAnalysisStage] = useState<
     'idle' | 'selected' | 'uploading' | 'analyzing' | 'complete' | 'failed'
   >('idle');
@@ -115,11 +118,101 @@ export default function App() {
     };
   }, []);
 
-  // File Selection
+  // Real Mathematical DSP Analysis with smooth 2.4s minimum animation (Rule 2 & 3)
+  const runMixAnalysis = async (
+    fileToAnalyze?: File | null,
+    targetGenre: GenreId = genre,
+    targetStage: MixStage = mixStage
+  ) => {
+    const file = fileToAnalyze || selectedFile;
+    if (!file) return;
+
+    if (!consent.audio_analysis_consent) {
+      setReportError('Permission 1 (audio_analysis_consent) is required to inspect audio.');
+      setAnalysisStage('failed');
+      return;
+    }
+
+    setSelectedFile(file);
+    setIsAnalyzing(true);
+    setAnalysisProgress(5);
+    setAnalysisStageIndex(0);
+    setLoadingReport(true);
+    setAnalysisStage('analyzing');
+    setReportError(null);
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const minDurationMs = 2400;
+    const startTime = performance.now();
+
+    // Smooth stage progress ticker (0% -> 95%)
+    const progressTimer = setInterval(() => {
+      const elapsed = performance.now() - startTime;
+      const progress = Math.min(95, Math.round((elapsed / minDurationMs) * 100));
+      setAnalysisProgress(progress);
+
+      if (progress < 25) {
+        setAnalysisStageIndex(0);
+      } else if (progress < 55) {
+        setAnalysisStageIndex(1);
+      } else if (progress < 85) {
+        setAnalysisStageIndex(2);
+      } else {
+        setAnalysisStageIndex(3);
+      }
+    }, 40);
+
+    const minDelayPromise = new Promise((resolve) => setTimeout(resolve, minDurationMs));
+
+    const fd = new FormData();
+    fd.append('audio_file', file);
+    fd.append('file', file);
+    fd.append('interface_mode', route === 'simple' ? 'simple' : 'advanced');
+    fd.append('genre', targetGenre);
+    fd.append('mix_stage', targetStage);
+    fd.append('stage', targetStage);
+    fd.append('consent_state_json', JSON.stringify(consent));
+    fd.append('consent_state', JSON.stringify(consent));
+
+    try {
+      const analysisPromise = analyzeAudioWithDsp(fd, fetch, controller.signal);
+      const [result] = await Promise.all([analysisPromise, minDelayPromise]);
+
+      clearInterval(progressTimer);
+      setAnalysisProgress(100);
+      setAnalysisStageIndex(3);
+
+      // Brief 150ms settling pause at 100%
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      if (result.success && result.report) {
+        setActiveReport(result.report);
+        setReportSource('backend');
+        setAnalysisStage('complete');
+        setReportError(null);
+      } else {
+        setAnalysisStage('failed');
+        setReportError(result.errorMessage || 'Mathematical DSP analysis failed.');
+      }
+    } catch (err: any) {
+      clearInterval(progressTimer);
+      if (err.name !== 'AbortError') {
+        setAnalysisStage('failed');
+        setReportError(err.message || 'DSP analysis failed.');
+      }
+    } finally {
+      clearInterval(progressTimer);
+      setIsAnalyzing(false);
+      setLoadingReport(false);
+    }
+  };
+
+  // File Selection auto-triggers real DSP analysis
   const handleSelectFile = (file: File) => {
     setSelectedFile(file);
-    setAnalysisStage('selected');
-    setReportError(null);
+    runMixAnalysis(file, genre, mixStage);
   };
 
   // Clear Selected File
@@ -132,63 +225,14 @@ export default function App() {
   // Cancel in-flight DSP analysis
   const handleCancelAnalysis = () => {
     abortControllerRef.current?.abort();
+    setIsAnalyzing(false);
     setAnalysisStage('selected');
     setReportError('DSP analysis was cancelled.');
     setLoadingReport(false);
   };
 
-  // Real Mathematical DSP Analysis (Rule 2 & 3: Never falls back to fake demo data on failure)
   const handleAnalyzeAudioFile = async (fileToAnalyze?: File) => {
-    const file = fileToAnalyze || selectedFile;
-    if (!file) return;
-
-    if (!consent.audio_analysis_consent) {
-      setReportError('Permission 1 (audio_analysis_consent) is required to inspect audio.');
-      setAnalysisStage('failed');
-      return;
-    }
-
-    setLoadingReport(true);
-    setAnalysisStage('uploading');
-    setReportError(null);
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-
-    try {
-      const fd = new FormData();
-      fd.append('audio_file', file);
-      fd.append('file', file);
-      fd.append('interface_mode', route === 'simple' ? 'simple' : 'advanced');
-      fd.append('genre', genre);
-      fd.append('mix_stage', mixStage);
-      fd.append('stage', mixStage);
-      fd.append('consent_state_json', JSON.stringify(consent));
-      fd.append('consent_state', JSON.stringify(consent));
-
-      // After upload starts, show analyzing state
-      const timer = setTimeout(() => {
-        setAnalysisStage('analyzing');
-      }, 600);
-
-      const result = await analyzeAudioWithDsp(fd, fetch, controller.signal);
-      clearTimeout(timer);
-
-      if (result.success && result.report) {
-        setActiveReport(result.report);
-        setReportSource('backend');
-        setAnalysisStage('complete');
-        setReportError(null);
-      } else {
-        setAnalysisStage('failed');
-        setReportError(result.errorMessage || 'Mathematical DSP analysis failed.');
-      }
-    } catch (err: any) {
-      setAnalysisStage('failed');
-      setReportError(err.message || 'DSP analysis failed.');
-    } finally {
-      setLoadingReport(false);
-    }
+    runMixAnalysis(fileToAnalyze || selectedFile, genre, mixStage);
   };
 
   // Explicitly Load Demonstration Report
@@ -597,7 +641,9 @@ export default function App() {
               consent={consent}
               onChangeGenre={(g) => {
                 setGenre(g);
-                if (activeReport.is_demonstration_data) {
+                if (selectedFile) {
+                  runMixAnalysis(selectedFile, g, mixStage);
+                } else if (activeReport.is_demonstration_data) {
                   setActiveReport(
                     generatePhase1DemoReport({
                       interface_mode: 'simple',
@@ -610,7 +656,9 @@ export default function App() {
               }}
               onChangeMixStage={(st) => {
                 setMixStage(st);
-                if (activeReport.is_demonstration_data) {
+                if (selectedFile) {
+                  runMixAnalysis(selectedFile, genre, st);
+                } else if (activeReport.is_demonstration_data) {
                   setActiveReport(
                     generatePhase1DemoReport({
                       interface_mode: 'simple',
@@ -624,10 +672,11 @@ export default function App() {
               onSwitchToAdvanced={() => navigateTo('advanced')}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
               selectedFile={selectedFile}
-              audioFile={selectedFile}
               onSelectFile={handleSelectFile}
               onClearFile={handleClearFile}
-              analysisStage={analysisStage}
+              isAnalyzing={isAnalyzing}
+              analysisProgress={analysisProgress}
+              analysisStageIndex={analysisStageIndex}
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
               onLoadDemonstration={handleLoadDemonstration}
@@ -661,7 +710,9 @@ export default function App() {
               consent={consent}
               onChangeGenre={(g) => {
                 setGenre(g);
-                if (activeReport.is_demonstration_data) {
+                if (selectedFile) {
+                  runMixAnalysis(selectedFile, g, mixStage);
+                } else if (activeReport.is_demonstration_data) {
                   setActiveReport(
                     generatePhase1DemoReport({
                       interface_mode: 'advanced',
@@ -674,7 +725,9 @@ export default function App() {
               }}
               onChangeMixStage={(st) => {
                 setMixStage(st);
-                if (activeReport.is_demonstration_data) {
+                if (selectedFile) {
+                  runMixAnalysis(selectedFile, genre, st);
+                } else if (activeReport.is_demonstration_data) {
                   setActiveReport(
                     generatePhase1DemoReport({
                       interface_mode: 'advanced',
@@ -690,6 +743,9 @@ export default function App() {
               audioFile={selectedFile}
               onSelectFile={handleSelectFile}
               onClearFile={handleClearFile}
+              isAnalyzing={isAnalyzing}
+              analysisProgress={analysisProgress}
+              analysisStageIndex={analysisStageIndex}
               analysisStage={analysisStage}
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
