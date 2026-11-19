@@ -29,7 +29,7 @@ def test_root_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] in ("ok", "online")
-    assert data["phase"] == 2
+    assert data["phase"] == 4
     assert data["is_demonstration_mode"] is False
 
 
@@ -38,17 +38,17 @@ def test_api_v1_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] in ("ok", "online")
-    assert data["phase"] == 2
+    assert data["phase"] == 4
     assert data["mode"] == "mathematical_dsp_active"
     assert data["is_demonstration_mode"] is False
     assert data["active_contract_version"] == "2.0.0"
 
 
-def test_capabilities_endpoint_reports_phase2_boundaries():
+def test_capabilities_endpoint_reports_phase4_boundaries():
     res = client.get("/api/v1/capabilities")
     assert res.status_code == 200
     data = res.json()
-    assert data["phase"] == 2
+    assert data["phase"] == 4
 
     rules = data["rules_enforced"]
     assert rules["no_ai_stem_separation"] is True
@@ -62,7 +62,8 @@ def test_capabilities_endpoint_reports_phase2_boundaries():
     assert caps["dsp_core_measurements"] == "IMPLEMENTED"
     assert caps["ai_stem_separation"] == "PROHIBITED_BY_PRODUCT_RULE"
     assert caps["streaming_normalization_estimates"] == "IMPLEMENTED"
-    assert caps["original_stem_multitrack_analysis"] == "NOT_IMPLEMENTED_PHASE_4"
+    assert caps["original_stem_multitrack_analysis"] == "IMPLEMENTED"
+    assert caps["mix_revision_comparison"] == "IMPLEMENTED"
     assert caps["ai_educational_interpretation"] == "NOT_IMPLEMENTED_PHASE_5"
 
 
@@ -166,19 +167,23 @@ def test_rule1_rejects_ai_stem_separation_with_422():
     assert res.json()["detail"]["error_code"] == "PROHIBITED_AI_STEM_SEPARATION"
 
 
-def test_original_stems_return_501_in_phase2():
+def test_original_stems_json_without_multipart_requires_audio_files():
     res = client.post(
         "/api/v1/analyze/stems",
         json=[{"stem_name": "original_drums.wav", "stem_source_type": "user_uploaded_original"}],
     )
-    assert res.status_code == 501
-    assert res.json()["detail"]["target_phase"] == 4
+    assert res.status_code == 422
+    assert res.json()["detail"]["error_code"] == "MULTIPART_ORIGINAL_STEMS_REQUIRED"
 
 
-def test_phase5_revisions_returns_501():
-    res = client.post("/api/v1/analyze/revisions")
-    assert res.status_code == 501
-    assert res.json()["detail"]["target_phase"] == 5
+def test_phase4_revisions_requires_inputs():
+    res = client.post("/api/v1/compare/revisions")
+    assert res.status_code == 422
+    assert res.json()["detail"]["error_code"] == "MISSING_REVISION_INPUTS"
+
+    alias_res = client.post("/api/v1/analyze/revisions")
+    assert alias_res.status_code == 422
+    assert alias_res.json()["detail"]["error_code"] == "MISSING_REVISION_INPUTS"
 
 
 def test_phase5_ai_endpoint_enforces_consent_and_501():

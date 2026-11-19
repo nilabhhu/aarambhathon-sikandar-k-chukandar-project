@@ -5,6 +5,9 @@ import {
   ConsentState,
   GenreId,
   MixStage,
+  RevisionDeltaReport,
+  StemMultitrackReport,
+  UserReportedDawContext,
 } from '../contracts/analysisContract';
 import { GENRE_LABELS, MIX_STAGE_LABELS } from '../contracts/demoFixtures';
 import { useStudioAudioEngine, useStudioAudioState } from '../audio/StudioAudioContext';
@@ -18,14 +21,19 @@ import { SpectralTonalBalanceGraph } from './SpectralTonalBalanceGraph';
 import { ShortTermLufsTimeline } from './ShortTermLufsTimeline';
 import { PhaseCorrelationMeter } from './PhaseCorrelationMeter';
 import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
+import { StemOverlapMatrix } from './StemOverlapMatrix';
+import { RevisionDeltaPanel } from './RevisionDeltaPanel';
 import {
   Activity,
+  ChevronDown,
+  ChevronUp,
   FileAudio,
   Info,
   Pause,
   Play,
   Repeat,
   RotateCcw,
+  SlidersHorizontal,
   Upload,
   X,
 } from 'lucide-react';
@@ -50,7 +58,34 @@ interface AdvancedMixCheckViewProps {
   errorMessage?: string | null;
   onCancelAnalysis?: () => void;
   onLoadDemonstration?: () => void;
+  stemReport?: StemMultitrackReport | null;
+  onStemReportChange?: (report: StemMultitrackReport | null) => void;
+  revisionComparison?: RevisionDeltaReport | null;
+  onRevisionComparisonChange?: (comparison: RevisionDeltaReport | null) => void;
+  dawContext?: UserReportedDawContext;
+  onDawContextChange?: (ctx: UserReportedDawContext) => void;
 }
+
+const DAW_OPTIONS = [
+  '',
+  'Ableton Live',
+  'Logic Pro',
+  'Pro Tools',
+  'FL Studio',
+  'REAPER',
+  'Cubase / Nuendo',
+  'Studio One',
+  'Bitwig Studio',
+  'Other DAW',
+];
+
+const DEFAULT_DAW_CONTEXT: UserReportedDawContext = {
+  source_tag: 'user_reported_context',
+  daw_name: '',
+  bus_routing: '',
+  plugin_chain_notes: '',
+  updated_at: null,
+};
 
 const SPRING_TRANSITION = { type: 'spring' as const, stiffness: 380, damping: 30 };
 
@@ -69,6 +104,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   report,
   genre,
   mixStage,
+  consent,
   onChangeGenre,
   onChangeMixStage,
   onAnalyzeAudioFile,
@@ -78,9 +114,65 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   isAnalyzing = false,
   analysisProgress = 0,
   analysisStageIndex = 0,
+  stemReport: controlledStemReport,
+  onStemReportChange,
+  revisionComparison: controlledRevisionComparison,
+  onRevisionComparisonChange,
+  dawContext: controlledDawContext,
+  onDawContextChange,
 }) => {
   const engine = useStudioAudioEngine();
   const audioState = useStudioAudioState();
+
+  const [localStemReport, setLocalStemReport] = useState<StemMultitrackReport | null>(null);
+  const [localRevisionComparison, setLocalRevisionComparison] =
+    useState<RevisionDeltaReport | null>(null);
+  const [localDawContext, setLocalDawContext] =
+    useState<UserReportedDawContext>(DEFAULT_DAW_CONTEXT);
+  const [dawDrawerOpen, setDawDrawerOpen] = useState(false);
+
+  const stemReport =
+    controlledStemReport !== undefined ? controlledStemReport : localStemReport;
+  const setStemReport = (next: StemMultitrackReport | null) => {
+    if (onStemReportChange) {
+      onStemReportChange(next);
+    } else {
+      setLocalStemReport(next);
+    }
+  };
+
+  const revisionComparison =
+    controlledRevisionComparison !== undefined
+      ? controlledRevisionComparison
+      : localRevisionComparison;
+  const setRevisionComparison = (next: RevisionDeltaReport | null) => {
+    if (onRevisionComparisonChange) {
+      onRevisionComparisonChange(next);
+    } else {
+      setLocalRevisionComparison(next);
+    }
+  };
+
+  const dawContext = controlledDawContext ?? localDawContext;
+  const updateDawContext = (patch: Partial<Omit<UserReportedDawContext, 'source_tag'>>) => {
+    const next: UserReportedDawContext = {
+      ...dawContext,
+      ...patch,
+      source_tag: 'user_reported_context',
+      updated_at: new Date().toISOString(),
+    };
+    if (onDawContextChange) {
+      onDawContextChange(next);
+    } else {
+      setLocalDawContext(next);
+    }
+  };
+
+  const hasDawNotes = Boolean(
+    dawContext.daw_name.trim() ||
+      dawContext.bus_routing.trim() ||
+      dawContext.plugin_chain_notes.trim()
+  );
 
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
     report?.issues?.[0]?.issue_id ?? null
@@ -180,7 +272,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 Advanced Mix Check Workbench
               </h1>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                Loudness-matched A/B auditioning, translation filter lab, 6-band tonal balance, LUFS timeline, and phase metering.
+                Loudness-matched A/B auditioning, translation filter lab, original multitrack stem overlap, and v1 → v2 revision delta tracking.
               </p>
             </div>
 
@@ -400,15 +492,27 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
                 {/* Right: Three Segmented Tactile Pill Groups (motion/react layoutId) */}
                 <div className="flex flex-wrap items-center gap-3">
-                  {/* Segmented 1: Mix A / Reference B */}
+                  {/* Segmented 1: Mix A / Reference B / Revision v2 */}
                   <div
                     role="group"
-                    aria-label="Active Deck A/B Switcher"
+                    aria-label="Active Deck A/B/v2 Switcher"
                     className="inline-flex items-center p-1 rounded-lg bg-[#F5F5F7] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
                   >
-                    {(['A', 'B'] as ActiveDeck[]).map((deck) => {
+                    {(
+                      audioState.hasRevisionV2
+                        ? (['A', 'V2', 'B'] as ActiveDeck[])
+                        : (['A', 'B'] as ActiveDeck[])
+                    ).map((deck) => {
                       const active = audioState.activeDeck === deck;
                       const disabled = deck === 'B' && !audioState.hasReferenceTrack;
+                      const deckLabel =
+                        deck === 'A'
+                          ? audioState.hasRevisionV2
+                            ? 'Mix v1'
+                            : 'Mix A'
+                          : deck === 'V2'
+                          ? 'Rev v2'
+                          : 'Reference B';
                       return (
                         <button
                           key={deck}
@@ -430,9 +534,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                               className="absolute inset-0 rounded-md bg-[#3A7269] dark:bg-teal-600"
                             />
                           )}
-                          <span className="relative z-10">
-                            {deck === 'A' ? 'Mix A' : 'Reference B'}
-                          </span>
+                          <span className="relative z-10">{deckLabel}</span>
                         </button>
                       );
                     })}
@@ -938,8 +1040,174 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 </table>
               </div>
             </section>
+
+            {/* 6. Phase 4: Before / After Mix Revision Verification (v1 vs. v2) */}
+            <RevisionDeltaPanel
+              v1Report={report}
+              v1File={selectedFile}
+              genre={genre}
+              mixStage={mixStage}
+              consent={consent}
+              comparison={revisionComparison}
+              onComparisonChange={setRevisionComparison}
+            />
           </>
         )}
+
+        {/* Phase 4: Original Multitrack Stem Overlap Matrix (Rule 1 Hard-Locked when has_user_stems === false) */}
+        <StemOverlapMatrix
+          consent={consent}
+          primaryMixFile={selectedFile}
+          stemReport={stemReport}
+          onStemReportChange={setStemReport}
+        />
+
+        {/* Phase 4: Optional Collapsible DAW / Plugin Chain Context Drawer (Strictly user_reported_context) */}
+        <section
+          aria-label="Optional DAW and Plugin Chain Context"
+          data-testid="daw-context-drawer"
+          className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-hidden"
+        >
+          <button
+            type="button"
+            onClick={() => setDawDrawerOpen((open) => !open)}
+            aria-expanded={dawDrawerOpen}
+            data-testid="daw-context-toggle"
+            className="w-full px-5 py-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-[#FAFAFA] dark:hover:bg-zinc-950/60 transition-colors"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-lg bg-[#F5F5F7] dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0">
+                <SlidersHorizontal className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                    DAW &amp; Plugin Chain Context (Optional)
+                  </h2>
+                  <span
+                    data-testid="daw-context-source-tag"
+                    className="inline-flex items-center px-2 py-0.5 rounded border border-zinc-300 dark:border-zinc-700 bg-[#F5F5F7] dark:bg-zinc-950 text-[10px] font-mono text-zinc-600 dark:text-zinc-400"
+                  >
+                    user_reported_context
+                  </span>
+                  {hasDawNotes && (
+                    <span className="text-[11px] font-mono text-[#3A7269] dark:text-teal-400">
+                      · Session notes recorded
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  Log your DAW, mix-bus routing, or plugin chain notes. Kept strictly separate from measured DSP metrics.
+                </p>
+              </div>
+            </div>
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 shrink-0">
+              <span>{dawDrawerOpen ? 'Collapse' : 'Expand'}</span>
+              {dawDrawerOpen ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </span>
+          </button>
+
+          {dawDrawerOpen && (
+            <div className="px-5 pb-5 pt-4 border-t border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/50 space-y-4">
+              <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2.5 flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <Info className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-mono text-[11px] font-semibold text-zinc-800 dark:text-zinc-200">
+                    DATA PROVENANCE BOUNDARY (user_reported_context):
+                  </span>{' '}
+                  Entries below are self-reported session notes only. They never alter, override, or fabricate mathematical DSP measurements (Rule 2).
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label
+                    htmlFor="daw-name-select"
+                    className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
+                  >
+                    DAW Environment
+                  </label>
+                  <select
+                    id="daw-name-select"
+                    data-testid="daw-name-select"
+                    value={dawContext.daw_name}
+                    onChange={(e) => updateDawContext({ daw_name: e.target.value })}
+                    className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
+                  >
+                    <option value="">Select DAW (optional)...</option>
+                    {DAW_OPTIONS.filter(Boolean).map((daw) => (
+                      <option key={daw} value={daw}>
+                        {daw}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="daw-bus-routing"
+                    className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
+                  >
+                    Bus Routing / Gain Staging Notes
+                  </label>
+                  <input
+                    id="daw-bus-routing"
+                    data-testid="daw-bus-routing"
+                    type="text"
+                    value={dawContext.bus_routing}
+                    onChange={(e) => updateDawContext({ bus_routing: e.target.value })}
+                    placeholder="e.g., Drum Bus -> Glue Comp (-2 dB GR) -> Stereo Out"
+                    className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="daw-plugin-chain"
+                  className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
+                >
+                  Active Mix-Bus / Mastering Plugin Chain Notes
+                </label>
+                <textarea
+                  id="daw-plugin-chain"
+                  data-testid="daw-plugin-chain"
+                  rows={2}
+                  value={dawContext.plugin_chain_notes}
+                  onChange={(e) => updateDawContext({ plugin_chain_notes: e.target.value })}
+                  placeholder="e.g., Pro-Q3 high-pass 30 Hz -> SSL Bus Comp 4:1 -> Pro-L2 ceiling -1.0 dBTP (bypassed for mix check)"
+                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
+                <span>
+                  Tag: <strong className="text-zinc-800 dark:text-zinc-200">{dawContext.source_tag}</strong>
+                  {dawContext.updated_at ? ` · Updated in session` : ' · Empty'}
+                </span>
+                {hasDawNotes && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onDawContextChange) {
+                        onDawContextChange(DEFAULT_DAW_CONTEXT);
+                      } else {
+                        setLocalDawContext(DEFAULT_DAW_CONTEXT);
+                      }
+                    }}
+                    className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-2"
+                  >
+                    Clear Session Notes
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     </MotionConfig>
   );

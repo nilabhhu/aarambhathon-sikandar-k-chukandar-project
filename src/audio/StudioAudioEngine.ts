@@ -24,7 +24,7 @@ import {
   SixBandMeasurements,
 } from './spectralProfile';
 
-export type ActiveDeck = 'A' | 'B';
+export type ActiveDeck = 'A' | 'B' | 'V2';
 export type TranslationMode = 'full' | 'phone' | 'laptop';
 
 export interface LoopRegion {
@@ -56,6 +56,14 @@ export interface StudioEngineSnapshot {
   referenceMatchOffsetDb: number | null;
   loudnessMatchEnabled: boolean;
   loadingReference: boolean;
+
+  hasRevisionV2: boolean;
+  revisionV2FileName: string | null;
+  revisionV2DurationSec: number;
+  revisionV2Lufs: number | null;
+  revisionV2SixBands: SixBandMeasurements | null;
+  revisionV2MatchOffsetDb: number | null;
+  loadingRevisionV2: boolean;
 
   isPlaying: boolean;
   activeDeck: ActiveDeck;
@@ -366,14 +374,24 @@ export class StudioAudioEngine {
   private loudnessMatchEnabled = true;
   private loadingReference = false;
 
+  private revisionV2Buffer: AudioBuffer | null = null;
+  private revisionV2FileName: string | null = null;
+  private revisionV2Lufs: number | null = null;
+  private revisionV2SixBands: SixBandMeasurements | null = null;
+  private revisionV2MatchOffsetDb: number | null = null;
+  private loadingRevisionV2 = false;
+
   // Active sources (sample-locked)
   private sourceANode: AudioBufferSourceNode | null = null;
   private sourceBNode: AudioBufferSourceNode | null = null;
+  private sourceV2Node: AudioBufferSourceNode | null = null;
 
   // Persistent Audio Graph Nodes
   private deckAGain: GainNode | null = null;
   private deckBGain: GainNode | null = null;
   private refMatchGain: GainNode | null = null;
+  private deckV2Gain: GainNode | null = null;
+  private v2MatchGain: GainNode | null = null;
   private deckBus: GainNode | null = null;
 
   // Stereo / Equal-Power Mono Fold stage
@@ -451,6 +469,14 @@ export class StudioAudioEngine {
       loudnessMatchEnabled: this.loudnessMatchEnabled,
       loadingReference: this.loadingReference,
 
+      hasRevisionV2: Boolean(this.revisionV2Buffer),
+      revisionV2FileName: this.revisionV2FileName,
+      revisionV2DurationSec: this.revisionV2Buffer?.duration ?? 0,
+      revisionV2Lufs: this.revisionV2Lufs,
+      revisionV2SixBands: this.revisionV2SixBands,
+      revisionV2MatchOffsetDb: this.revisionV2MatchOffsetDb,
+      loadingRevisionV2: this.loadingRevisionV2,
+
       isPlaying: this.isPlaying,
       activeDeck: this.activeDeck,
       monoMode: this.monoMode,
@@ -478,19 +504,25 @@ export class StudioAudioEngine {
 
     const ctx = this.ctx;
 
-    // 1. Dual Deck A/B Inputs + Loudness Match Gain on Deck B
+    // 1. Tri-Deck A / B / Revision V2 Inputs + Loudness Match Gain on B and V2
     const deckAGain = ctx.createGain();
     const refMatchGain = ctx.createGain();
     const deckBGain = ctx.createGain();
+    const v2MatchGain = ctx.createGain();
+    const deckV2Gain = ctx.createGain();
     const deckBus = ctx.createGain();
 
     deckAGain.gain.value = this.activeDeck === 'A' ? 1.0 : 0.0;
     refMatchGain.gain.value = this.getEffectiveRefMatchLinear();
     deckBGain.gain.value = this.activeDeck === 'B' ? 1.0 : 0.0;
+    v2MatchGain.gain.value = this.getEffectiveV2MatchLinear();
+    deckV2Gain.gain.value = this.activeDeck === 'V2' ? 1.0 : 0.0;
 
     deckAGain.connect(deckBus);
     refMatchGain.connect(deckBGain);
     deckBGain.connect(deckBus);
+    v2MatchGain.connect(deckV2Gain);
+    deckV2Gain.connect(deckBus);
 
     // 2. Stereo vs. Equal-Power Mono Fold Stage (0.5 * L + 0.5 * R)
     const stereoPathGain = ctx.createGain();
@@ -632,6 +664,8 @@ export class StudioAudioEngine {
     this.deckAGain = deckAGain;
     this.deckBGain = deckBGain;
     this.refMatchGain = refMatchGain;
+    this.deckV2Gain = deckV2Gain;
+    this.v2MatchGain = v2MatchGain;
     this.deckBus = deckBus;
     this.stereoPathGain = stereoPathGain;
     this.monoPathGain = monoPathGain;
@@ -654,6 +688,13 @@ export class StudioAudioEngine {
     return dbToLinearGain(this.referenceMatchOffsetDb);
   }
 
+  private getEffectiveV2MatchLinear(): number {
+    if (!this.loudnessMatchEnabled || this.revisionV2MatchOffsetDb === null) {
+      return 1.0;
+    }
+    return dbToLinearGain(this.revisionV2MatchOffsetDb);
+  }
+
   private rampGain(node: GainNode | null, target: number): void {
     if (!node || !this.ctx) return;
     const now = this.ctx.currentTime;
@@ -669,10 +710,27 @@ export class StudioAudioEngine {
     this.rampGain(this.refMatchGain, this.getEffectiveRefMatchLinear());
   }
 
+  private updateRevisionV2MatchOffset(): void {
+    this.revisionV2MatchOffsetDb = computeLoudnessMatchGainOffsetDb(
+      this.primaryLufs,
+      this.revisionV2Lufs
+    );
+    this.rampGain(this.v2MatchGain, this.getEffectiveV2MatchLinear());
+  }
+
   public syncPrimaryLufsFromReport(reportLufs: number | null | undefined): void {
     if (reportLufs !== null && reportLufs !== undefined && Number.isFinite(reportLufs)) {
       this.primaryLufs = reportLufs;
       this.updateReferenceMatchOffset();
+      this.updateRevisionV2MatchOffset();
+      this.emit();
+    }
+  }
+
+  public syncRevisionV2LufsFromReport(reportLufs: number | null | undefined): void {
+    if (reportLufs !== null && reportLufs !== undefined && Number.isFinite(reportLufs)) {
+      this.revisionV2Lufs = reportLufs;
+      this.updateRevisionV2MatchOffset();
       this.emit();
     }
   }
@@ -709,8 +767,10 @@ export class StudioAudioEngine {
           : measureIntegratedLufsFromBuffer(decoded);
 
       this.updateReferenceMatchOffset();
+      this.updateRevisionV2MatchOffset();
       this.rampGain(this.deckAGain, 1.0);
       this.rampGain(this.deckBGain, 0.0);
+      this.rampGain(this.deckV2Gain, 0.0);
       this.emit();
     } catch (err: any) {
       const isAiff =
@@ -742,7 +802,7 @@ export class StudioAudioEngine {
       this.updateReferenceMatchOffset();
       this.loadingReference = false;
 
-      // If currently playing, re-lock both A and B sources at the exact current offset
+      // If currently playing, re-lock all sources at the exact current offset
       if (this.isPlaying) {
         const currentPos = this.getCurrentTime();
         this.startSampleLockedSources(currentPos);
@@ -754,6 +814,64 @@ export class StudioAudioEngine {
       this.playbackError = `Reference track decode error: ${err?.message || 'Unsupported audio format.'}`;
       this.emit();
     }
+  }
+
+  public async loadRevisionV2File(file: File, knownIntegratedLufs?: number | null): Promise<void> {
+    this.loadingRevisionV2 = true;
+    this.playbackError = null;
+    this.emit();
+
+    try {
+      const ctx = this.ensureAudioGraph();
+      const arrayBuffer = await file.arrayBuffer();
+      const decoded = await ctx.decodeAudioData(arrayBuffer.slice(0));
+
+      this.revisionV2Buffer = decoded;
+      this.revisionV2FileName = file.name;
+      this.revisionV2Lufs =
+        knownIntegratedLufs !== undefined && knownIntegratedLufs !== null
+          ? knownIntegratedLufs
+          : measureIntegratedLufsFromBuffer(decoded);
+      this.revisionV2SixBands = measureSixBandSpectrumFromBuffer(decoded);
+      this.updateRevisionV2MatchOffset();
+      this.loadingRevisionV2 = false;
+
+      if (this.isPlaying) {
+        const currentPos = this.getCurrentTime();
+        this.startSampleLockedSources(currentPos);
+      }
+
+      this.emit();
+    } catch (err: any) {
+      this.loadingRevisionV2 = false;
+      this.playbackError = `Revision v2 decode error: ${err?.message || 'Unsupported audio format.'}`;
+      this.emit();
+    }
+  }
+
+  public clearRevisionV2(): void {
+    if (this.sourceV2Node) {
+      try {
+        this.sourceV2Node.stop();
+        this.sourceV2Node.disconnect();
+      } catch {
+        // ignore
+      }
+      this.sourceV2Node = null;
+    }
+    this.revisionV2Buffer = null;
+    this.revisionV2FileName = null;
+    this.revisionV2Lufs = null;
+    this.revisionV2SixBands = null;
+    this.revisionV2MatchOffsetDb = null;
+    this.loadingRevisionV2 = false;
+    if (this.activeDeck === 'V2') {
+      this.activeDeck = 'A';
+      this.rampGain(this.deckAGain, 1.0);
+      this.rampGain(this.deckBGain, 0.0);
+      this.rampGain(this.deckV2Gain, 0.0);
+    }
+    this.emit();
   }
 
   public clearReferenceTrack(): void {
@@ -775,6 +893,7 @@ export class StudioAudioEngine {
       this.activeDeck = 'A';
       this.rampGain(this.deckAGain, 1.0);
       this.rampGain(this.deckBGain, 0.0);
+      this.rampGain(this.deckV2Gain, 0.0);
     }
     this.emit();
   }
@@ -786,12 +905,19 @@ export class StudioAudioEngine {
     this.primaryLufs = null;
     this.primarySixBands = null;
     this.primaryPeaksCache = null;
+    this.revisionV2Buffer = null;
+    this.revisionV2FileName = null;
+    this.revisionV2Lufs = null;
+    this.revisionV2SixBands = null;
+    this.revisionV2MatchOffsetDb = null;
+    this.activeDeck = 'A';
     this.isPlaying = false;
     this.offsetSec = 0;
     this.loopRegion = null;
     this.isLooping = false;
     this.playbackError = null;
     this.updateReferenceMatchOffset();
+    this.updateRevisionV2MatchOffset();
     this.emit();
   }
 
@@ -823,6 +949,16 @@ export class StudioAudioEngine {
         // ignore
       }
       this.sourceBNode = null;
+    }
+    if (this.sourceV2Node) {
+      this.sourceV2Node.onended = null;
+      try {
+        this.sourceV2Node.stop();
+        this.sourceV2Node.disconnect();
+      } catch {
+        // ignore
+      }
+      this.sourceV2Node = null;
     }
   }
 
@@ -865,6 +1001,17 @@ export class StudioAudioEngine {
           : 0;
       srcB.start(syncStartTime, refOffset);
       this.sourceBNode = srcB;
+    }
+
+    if (this.revisionV2Buffer && this.v2MatchGain) {
+      const srcV2 = ctx.createBufferSource();
+      srcV2.buffer = this.revisionV2Buffer;
+      srcV2.loop = false;
+      srcV2.connect(this.v2MatchGain);
+      if (clampedOffset < this.revisionV2Buffer.duration - 0.01) {
+        srcV2.start(syncStartTime, clampedOffset);
+        this.sourceV2Node = srcV2;
+      }
     }
 
     this.startCtxTime = syncStartTime;
@@ -962,12 +1109,14 @@ export class StudioAudioEngine {
 
   public setActiveDeck(deck: ActiveDeck): void {
     if (deck === 'B' && !this.referenceBuffer) return;
+    if (deck === 'V2' && !this.revisionV2Buffer) return;
     if (this.activeDeck === deck) return;
     this.activeDeck = deck;
 
-    // 15ms click-free exponential crossfade between sample-locked A & B decks
+    // 15ms click-free exponential crossfade across sample-locked Mix v1 (A), Reference B, and Revision V2 decks
     this.rampGain(this.deckAGain, deck === 'A' ? 1.0 : 0.0);
     this.rampGain(this.deckBGain, deck === 'B' ? 1.0 : 0.0);
+    this.rampGain(this.deckV2Gain, deck === 'V2' ? 1.0 : 0.0);
     this.emit();
   }
 
@@ -975,6 +1124,7 @@ export class StudioAudioEngine {
     if (this.loudnessMatchEnabled === enabled) return;
     this.loudnessMatchEnabled = enabled;
     this.rampGain(this.refMatchGain, this.getEffectiveRefMatchLinear());
+    this.rampGain(this.v2MatchGain, this.getEffectiveV2MatchLinear());
     this.emit();
   }
 

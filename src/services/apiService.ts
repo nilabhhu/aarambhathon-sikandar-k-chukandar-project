@@ -12,11 +12,18 @@ import {
   GenreId,
   InterfaceMode,
   MixStage,
+  RevisionDeltaReport,
+  StemBandKey,
+  StemMultitrackReport,
   validateAnalysisReport,
-  validatePhase1AnalysisReport,
 } from '../contracts/analysisContract';
 import { generatePhase1DemoReport } from '../contracts/demoFixtures';
-import { analyzeAudioWithClientWebAudio } from './clientWebAudioDsp';
+import {
+  analyzeAudioWithClientWebAudio,
+  analyzeStemsWithClientWebAudio,
+  measureSixBandsFromFileClient,
+} from './clientWebAudioDsp';
+import { compareRevisionReportsPure, validateOriginalStemFiles } from '../audio/phase4Logic';
 
 const RAW_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL
@@ -342,5 +349,257 @@ export async function fetchAnalysisReport(
       report: fallback,
       errorMessage: `Backend offline (${err.message || 'connection refused'}). Using local demonstration fallback.`,
     };
+  }
+}
+
+export interface StemAnalysisFetchResult {
+  success: boolean;
+  source: 'backend' | 'client_webaudio';
+  report?: StemMultitrackReport;
+  statusCode?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Phase 4: Analyzes 2–8 genuine user-uploaded original DAW stems via POST /api/v1/analyze/stems,
+ * with deterministic in-browser Web Audio API fallback when FastAPI is offline.
+ * Strictly enforces Rule 1 (no AI stem separation) and <=50 ms duration alignment.
+ */
+export async function analyzeStemsWithDsp(
+  params: {
+    stemFiles: File[];
+    primaryMixFile?: File | null;
+    consent: ConsentState;
+  },
+  customFetch: typeof fetch = fetch
+): Promise<StemAnalysisFetchResult> {
+  if (!params.consent.audio_analysis_consent) {
+    return {
+      success: false,
+      source: 'backend',
+      statusCode: 403,
+      errorCode: 'CONSENT_REQUIRED',
+      errorMessage: 'Permission 1 (audio_analysis_consent) is required before measuring stems.',
+    };
+  }
+
+  const clientCheck = validateOriginalStemFiles(params.stemFiles);
+  if (!clientCheck.valid) {
+    return {
+      success: false,
+      source: 'client_webaudio',
+      statusCode: clientCheck.errorCode?.includes('TOO_LARGE') ? 413 : 422,
+      errorCode: clientCheck.errorCode ?? 'INVALID_STEM_UPLOAD',
+      errorMessage: clientCheck.errorMessage ?? 'Invalid original stem selection.',
+    };
+  }
+
+  const runClientFallback = async (): Promise<StemAnalysisFetchResult> => {
+    try {
+      const clientReport = await analyzeStemsWithClientWebAudio(
+        params.stemFiles,
+        params.primaryMixFile ?? null
+      );
+      return {
+        success: true,
+        source: 'client_webaudio',
+        report: clientReport,
+        statusCode: 200,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        source: 'client_webaudio',
+        statusCode: 422,
+        errorCode: err?.errorCode || 'STEM_ANALYSIS_ERROR',
+        errorMessage: err?.message || 'Unable to analyze uploaded stems in browser Web Audio.',
+      };
+    }
+  };
+
+  const fd = new FormData();
+  fd.append('stem_source_type', 'user_uploaded_original');
+  fd.append('consent_state_json', JSON.stringify(params.consent));
+  for (const file of params.stemFiles) {
+    fd.append('stems', file);
+  }
+  if (params.primaryMixFile) {
+    fd.append('primary_mix', params.primaryMixFile);
+  }
+
+  try {
+    const res = await customFetch(buildApiUrl('/api/v1/analyze/stems'), {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: fd,
+    });
+
+    if (res.ok) {
+      const data: StemMultitrackReport = await res.json();
+      return { success: true, source: 'backend', report: data, statusCode: res.status };
+    }
+
+    let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
+    let errCode: string | undefined;
+    let hasFastApiDetail = false;
+    try {
+      const errJson = await res.json();
+      if (errJson?.detail?.message) {
+        errMsg = errJson.detail.message;
+        errCode = errJson.detail.error_code;
+        hasFastApiDetail = true;
+      } else if (typeof errJson?.detail === 'string') {
+        errMsg = errJson.detail;
+        hasFastApiDetail = true;
+      }
+    } catch {
+      // ignore non-json error bodies
+    }
+
+    if (hasFastApiDetail && res.status !== 401 && res.status !== 405) {
+      return {
+        success: false,
+        source: 'backend',
+        statusCode: res.status,
+        errorCode: errCode,
+        errorMessage: errMsg,
+      };
+    }
+
+    // Backend unavailable / static host / proxy 401 -> deterministic Web Audio fallback
+    return await runClientFallback();
+  } catch {
+    return await runClientFallback();
+  }
+}
+
+export interface RevisionComparisonFetchResult {
+  success: boolean;
+  source: 'backend' | 'client_webaudio';
+  comparison?: RevisionDeltaReport;
+  statusCode?: number;
+  errorMessage?: string;
+}
+
+/**
+ * Phase 4: Compares Mix v1 against Revised Mix v2 via POST /api/v1/compare/revisions,
+ * with deterministic in-browser Web Audio API fallback when FastAPI is offline.
+ */
+export async function compareRevisionsWithDsp(
+  params: {
+    v1Report: AnalysisReport;
+    v2File: File;
+    v1File?: File | null;
+    v1SixBands?: Record<StemBandKey, number | null> | null;
+    genre: GenreId;
+    mixStage: MixStage;
+    consent: ConsentState;
+    interfaceMode?: InterfaceMode;
+  },
+  customFetch: typeof fetch = fetch
+): Promise<RevisionComparisonFetchResult> {
+  if (!params.consent.audio_analysis_consent) {
+    return {
+      success: false,
+      source: 'backend',
+      statusCode: 403,
+      errorMessage: 'Permission 1 (audio_analysis_consent) is required to compare revisions.',
+    };
+  }
+
+  const runClientFallback = async (): Promise<RevisionComparisonFetchResult> => {
+    try {
+      const [v2Report, v2SixBands] = await Promise.all([
+        analyzeAudioWithClientWebAudio(
+          params.v2File,
+          params.genre,
+          params.mixStage,
+          params.consent,
+          params.interfaceMode ?? 'advanced'
+        ),
+        measureSixBandsFromFileClient(params.v2File),
+      ]);
+      const v1SixBands =
+        params.v1SixBands ??
+        (params.v1File ? await measureSixBandsFromFileClient(params.v1File) : null);
+
+      const comparison = compareRevisionReportsPure(
+        params.v1Report,
+        v2Report,
+        v1SixBands,
+        v2SixBands
+      );
+      return {
+        success: true,
+        source: 'client_webaudio',
+        comparison,
+        statusCode: 200,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        source: 'client_webaudio',
+        statusCode: 422,
+        errorMessage: `Revision v2 analysis failed: ${err?.message || 'Could not decode audio.'}`,
+      };
+    }
+  };
+
+  const fd = new FormData();
+  fd.append('mix_v2', params.v2File);
+  fd.append('v1_report_json', JSON.stringify(params.v1Report));
+  if (params.v1SixBands) {
+    fd.append('v1_six_band_spectrum_json', JSON.stringify(params.v1SixBands));
+  }
+  fd.append('genre', params.genre);
+  fd.append('mix_stage', params.mixStage);
+  fd.append('interface_mode', params.interfaceMode ?? 'advanced');
+  fd.append('consent_state_json', JSON.stringify(params.consent));
+
+  try {
+    const res = await customFetch(buildApiUrl('/api/v1/compare/revisions'), {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: fd,
+    });
+
+    if (res.ok) {
+      const comparison: RevisionDeltaReport = await res.json();
+      return {
+        success: true,
+        source: 'backend',
+        comparison,
+        statusCode: res.status,
+      };
+    }
+
+    let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
+    let hasFastApiDetail = false;
+    try {
+      const errJson = await res.json();
+      if (errJson?.detail?.message) {
+        errMsg = errJson.detail.message;
+        hasFastApiDetail = true;
+      } else if (typeof errJson?.detail === 'string') {
+        errMsg = errJson.detail;
+        hasFastApiDetail = true;
+      }
+    } catch {
+      // ignore
+    }
+
+    if (hasFastApiDetail && res.status !== 401 && res.status !== 405) {
+      return {
+        success: false,
+        source: 'backend',
+        statusCode: res.status,
+        errorMessage: errMsg,
+      };
+    }
+
+    return await runClientFallback();
+  } catch {
+    return await runClientFallback();
   }
 }

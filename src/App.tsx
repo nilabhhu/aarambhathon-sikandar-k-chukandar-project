@@ -10,6 +10,9 @@ import {
   createDefaultConsentState,
   GenreId,
   MixStage,
+  RevisionDeltaReport,
+  StemMultitrackReport,
+  UserReportedDawContext,
 } from './contracts/analysisContract';
 import { generatePhase1DemoReport, GENRE_LABELS, MIX_STAGE_LABELS } from './contracts/demoFixtures';
 import { checkBackendHealth, analyzeAudioWithDsp } from './services/apiService';
@@ -64,6 +67,17 @@ function MixLearnStudioShell() {
   const [activeReport, setActiveReport] = useState<AnalysisReport | null>(null);
   const [loadingReport, setLoadingReport] = useState<boolean>(false);
   const [reportError, setReportError] = useState<string | null>(null);
+
+  // Phase 4 Lifted Session State: Original Stems, Mix Revision v2 Delta, and User-Reported DAW Context
+  const [stemReport, setStemReport] = useState<StemMultitrackReport | null>(null);
+  const [revisionComparison, setRevisionComparison] = useState<RevisionDeltaReport | null>(null);
+  const [dawContext, setDawContext] = useState<UserReportedDawContext>({
+    source_tag: 'user_reported_context',
+    daw_name: '',
+    bus_routing: '',
+    plugin_chain_notes: '',
+    updated_at: null,
+  });
 
   // Sync route changes with browser history
   const navigateTo = (newRoute: ActiveRoute) => {
@@ -130,6 +144,8 @@ function MixLearnStudioShell() {
 
     setSelectedFile(file);
     setActiveReport(null);
+    setRevisionComparison(null);
+    studioAudioEngine.clearRevisionV2();
     setIsAnalyzing(true);
     setAnalysisProgress(5);
     setAnalysisStageIndex(0);
@@ -220,6 +236,7 @@ function MixLearnStudioShell() {
     studioAudioEngine.clearPrimaryMix();
     setSelectedFile(null);
     setActiveReport(null);
+    setRevisionComparison(null);
     setAnalysisStage('idle');
     setReportError(null);
   };
@@ -344,7 +361,7 @@ function MixLearnStudioShell() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-600 dark:text-zinc-400">
           <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums">
             <span className="font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 3 · STUDIO WORKBENCH
+              PHASE 4 · STEMS &amp; REVISION DELTAS
             </span>
             <span aria-hidden="true">·</span>
             <span>SHARED ENGINE CONTRACT v{activeReport?.schema_version || '2.0.0'}</span>
@@ -424,13 +441,13 @@ function MixLearnStudioShell() {
             <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-8">
               <div className="max-w-4xl">
                 <p className="text-xs font-mono text-[#3A7269] dark:text-teal-400 font-semibold">
-                  PRIVACY-FIRST AUDIO ENGINEERING EDUCATION · PHASE 3 STUDIO WORKBENCH
+                  PRIVACY-FIRST AUDIO ENGINEERING EDUCATION · PHASE 4 STEMS &amp; REVISION DELTAS
                 </p>
                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-2 text-balance">
                   Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.
                 </h1>
                 <p className="text-base text-zinc-600 dark:text-zinc-400 mt-3 leading-relaxed">
-                  Examine your mixes with mathematical DSP measurements as the single source of truth, audition exact issue timestamps on a 60fps waveform canvas, compare loudness-matched reference tracks, and verify translation across consumer speakers.
+                  Examine your mixes with mathematical DSP measurements as the single source of truth, inspect user-uploaded original stems for potential spectral masking, verify v1 → v2 revision improvements, and audition loudness-matched reference tracks.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <button
@@ -511,10 +528,10 @@ function MixLearnStudioShell() {
                     Full studio playback workbench with loudness-matched Reference A/B, Translation Lab filters, and synchronized time-domain diagnostics.
                   </p>
                   <ul className="mt-4 space-y-2 text-xs text-zinc-700 dark:text-zinc-300">
-                    <li>1. Sample-locked Mix A / Reference B switching with integrated-LUFS loudness matching.</li>
+                    <li>1. Sample-locked Mix A / Reference B &amp; Revision v2 loudness-matched switching.</li>
                     <li>2. Equal-power Stereo/Mono folding and Smartphone/Laptop linear filter approximations.</li>
-                    <li>3. 60fps canvas waveform with clickable issue pins and continuous section looping.</li>
-                    <li>4. 6-Band Tonal Balance, Short-Term LUFS Timeline, and Stereo Phase Correlation Meter.</li>
+                    <li>3. 2–8 original user stem overlap matrix (Rule 1: zero AI stem separation) &amp; DAW context notes.</li>
+                    <li>4. v1 → v2 revision delta tracker verifying Improved, Unchanged, and Regressed findings.</li>
                   </ul>
                 </div>
                 <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
@@ -676,6 +693,12 @@ function MixLearnStudioShell() {
               analysisStage={analysisStage}
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
+              stemReport={stemReport}
+              onStemReportChange={setStemReport}
+              revisionComparison={revisionComparison}
+              onRevisionComparisonChange={setRevisionComparison}
+              dawContext={dawContext}
+              onDawContextChange={setDawContext}
             />
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>

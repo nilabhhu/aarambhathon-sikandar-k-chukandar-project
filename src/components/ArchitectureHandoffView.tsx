@@ -107,13 +107,13 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
         <div className="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-zinc-200 dark:border-zinc-800">
           <div>
             <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 3 · STUDIO WORKBENCH &amp; SHARED CONTRACT SPECIFICATION
+              PHASE 4 · STEMS, REVISION DELTAS &amp; SHARED CONTRACT SPECIFICATION
             </p>
             <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">
               System Architecture &amp; Implementation Contract
             </h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-3xl">
-              Single source of truth for repository layout, shared JSON Schema v2.0.0 data contracts, Web Audio Studio Engine, FastAPI DSP endpoints, and 5-tier consent boundaries.
+              Single source of truth for repository layout, shared JSON Schema v2.0.0 data contracts, streaming multitrack stem DSP (zero AI separation), revision delta comparison, and 5-tier consent boundaries.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs font-mono text-[#3A7269] dark:text-teal-400 bg-[#3A7269]/10 dark:bg-teal-950/50 border border-[#3A7269]/25 dark:border-teal-800 px-3 py-2 rounded-md">
@@ -139,17 +139,18 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
 │       └── demo_report.json         # Canonical schema fixture
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI DSP & contract routes
-│   │   └── dsp/                     # Loudness, spectral, diagnostics
+│   │   ├── main.py                  # FastAPI DSP, stems & revision routes
+│   │   └── dsp/                     # Loudness, spectral, stems, revisions
 │   └── tests/                       # Pytest DSP & contract suite
 ├── src/
 │   ├── audio/
-│   │   ├── StudioAudioEngine.ts     # Singleton Web Audio A/B & Lab
+│   │   ├── StudioAudioEngine.ts     # Singleton Web Audio A/B/v2 & Lab
 │   │   ├── StudioAudioContext.tsx   # App-level audio persistence
-│   │   └── spectralProfile.ts       # 6-band genre target math
+│   │   ├── spectralProfile.ts       # 6-band genre target math
+│   │   └── phase4Logic.ts           # Stem overlap & revision delta math
 │   ├── contracts/                   # Shared TS contract & tests
 │   ├── services/                    # Relative API & Web Audio DSP
-│   └── components/                  # Simple & Advanced Workbenches
+│   └── components/                  # Simple, Advanced, Stems & Revisions
 └── docs/                            # System & privacy specifications`}
             </pre>
           </div>
@@ -159,54 +160,64 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
               <Terminal className="w-4 h-4 text-[#3A7269] dark:text-teal-400" />
               <span>API Endpoint &amp; Engine Capability Matrix</span>
             </h2>
-            <div className="mt-3 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden">
+            <div className="mt-3 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-[#FAFAFA] dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-                    <th className="py-2 px-3">Method &amp; Route</th>
-                    <th className="py-2 px-3">Milestone</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Method &amp; Route</th>
+                    <th className="py-2 px-3 whitespace-nowrap">Milestone</th>
                     <th className="py-2 px-3">Current Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono">
                   <tr>
-                    <td className="py-2 px-3">GET /api/v1/health</td>
-                    <td className="py-2 px-3">Foundation</td>
+                    <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/health</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
                     <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Operational)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">GET /api/v1/capabilities</td>
-                    <td className="py-2 px-3">Foundation</td>
+                    <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/capabilities</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
                     <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Implemented)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">GET /api/v1/contracts/schema</td>
-                    <td className="py-2 px-3">Foundation</td>
+                    <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/contracts/schema</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
                     <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (v2.0.0)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">POST /api/v1/analyze/dsp</td>
-                    <td className="py-2 px-3">Phase 2</td>
+                    <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/dsp</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 2</td>
                     <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (FastAPI / Web Audio)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">StudioAudioEngine A/B + Lab</td>
-                    <td className="py-2 px-3">Phase 3</td>
+                    <td className="py-2 px-3 whitespace-nowrap">StudioAudioEngine A/B + Lab</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 3</td>
                     <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">Active (Client Web Audio)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">POST /api/v1/analyze/stems</td>
-                    <td className="py-2 px-3">Phase 4</td>
-                    <td className="py-2 px-3 text-zinc-500">422 Rule 1 / 501 Scheduled</td>
+                    <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/streaming</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 3</td>
+                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Spotify/Apple/YT)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">POST /api/v1/analyze/revisions</td>
-                    <td className="py-2 px-3">Phase 4</td>
-                    <td className="py-2 px-3 text-zinc-500">501 Scheduled</td>
+                    <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/stems</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 4</td>
+                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Original Stems · 422 Rule 1)</td>
                   </tr>
                   <tr>
-                    <td className="py-2 px-3">POST /api/v1/interpret/ai</td>
-                    <td className="py-2 px-3">Phase 5</td>
+                    <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/compare/revisions</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 4</td>
+                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (v1 → v2 Deltas Active)</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 px-3 whitespace-nowrap">AI Stem Separation</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Rule 1</td>
+                    <td className="py-2 px-3 text-rose-700 dark:text-rose-400">PROHIBITED_BY_PRODUCT_RULE</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/interpret/ai</td>
+                    <td className="py-2 px-3 whitespace-nowrap">Phase 5</td>
                     <td className="py-2 px-3 text-zinc-500">403 Consent / 501 Scheduled</td>
                   </tr>
                 </tbody>
@@ -321,9 +332,9 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             </p>
           </div>
 
-          <div className="border border-[#3A7269] dark:border-teal-600 bg-[#3A7269]/[0.06] dark:bg-teal-950/30 rounded-lg p-4">
+          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
             <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 3 · ACTIVE WORKBENCH
+              PHASE 3 · COMPLETE
             </div>
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
               Advanced Workbench &amp; Translation Lab
@@ -333,15 +344,15 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             </p>
           </div>
 
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
-            <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 4 · SCHEDULED
+          <div className="border border-[#3A7269] dark:border-teal-600 bg-[#3A7269]/[0.06] dark:bg-teal-950/30 rounded-lg p-4">
+            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
+              PHASE 4 · ACTIVE WORKBENCH
             </div>
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
               Original Stems &amp; Revision Delta
             </h3>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              User-uploaded original multitrack overlap detection (Rule 1: zero AI separation) and v1 vs. v2 revision tracking.
+              Streaming 2–8 original user stem overlap matrix (Rule 1: zero AI separation), optional DAW context drawer, and loudness-matched v1 → v2 revision verification.
             </p>
           </div>
 

@@ -247,6 +247,186 @@ export interface StemSubmissionCandidate {
   stem_source_type: StemSourceType;
 }
 
+export type StemBandKey = 'sub' | 'low' | 'low_mid' | 'high_mid' | 'presence' | 'air';
+
+export type OverlapSeverity = 'low' | 'moderate' | 'high';
+
+export interface StemAnalysisItem {
+  stem_id: string;
+  stem_name: string;
+  stem_role: string;
+  stem_source_type: 'user_uploaded_original';
+  duration_seconds: number;
+  sample_rate_hz: number;
+  channels: number;
+  file_size_bytes: number;
+  integrated_lufs: number | null;
+  sample_peak_dbfs: number | null;
+  true_peak_dbtp: number | null;
+  headroom_db: number | null;
+  rms_dbfs: number | null;
+  spectral_centroid_hz: number | null;
+  six_band_energies_db: Record<StemBandKey, number | null>;
+}
+
+export interface PairwiseBandOverlap {
+  stem_a_db: number | null;
+  stem_b_db: number | null;
+  level_diff_db: number | null;
+  overlap_score: number;
+  severity: OverlapSeverity;
+}
+
+export interface StemPairOverlap {
+  stem_a_id: string;
+  stem_a_name: string;
+  stem_b_id: string;
+  stem_b_name: string;
+  peak_overlap_band: StemBandKey;
+  peak_overlap_band_label: string;
+  peak_overlap_score: number;
+  severity: OverlapSeverity;
+  bands: Record<StemBandKey, PairwiseBandOverlap>;
+  summary: string;
+}
+
+export interface StemOverlapHighlight {
+  stem_a: string;
+  stem_b: string;
+  band_key: StemBandKey;
+  band_label: string;
+  severity: OverlapSeverity;
+  overlap_score: number;
+  stem_a_db: number | null;
+  stem_b_db: number | null;
+  note: string;
+}
+
+export interface PrimaryMixResidual {
+  available: boolean;
+  primary_mix_filename?: string;
+  primary_mix_rms_dbfs?: number | null;
+  stem_sum_rms_dbfs?: number | null;
+  rms_difference_db?: number | null;
+  residual_rms_dbfs?: number | null;
+  residual_peak_dbfs?: number | null;
+  residual_energy_ratio_percent?: number;
+  reason?: string;
+  interpretation_note: string;
+}
+
+export interface StemMultitrackReport {
+  schema_version: '2.0.0';
+  analysis_id: string;
+  created_at: string;
+  has_user_stems: true;
+  stem_source_type: 'user_uploaded_original';
+  rule_1_compliance_notice: string;
+  stem_count: number;
+  total_upload_bytes: number;
+  alignment: {
+    aligned: boolean;
+    tolerance_ms: number;
+    max_duration_diff_ms: number;
+    reference_duration_seconds: number;
+    sample_rates_hz: number[];
+    normalized_sample_rate_hz: number;
+    warnings: string[];
+  };
+  stems: StemAnalysisItem[];
+  overlap_matrix: {
+    bands: Array<{ key: StemBandKey; label: string; low_hz: number; high_hz: number }>;
+    pairs: StemPairOverlap[];
+    highlights: StemOverlapHighlight[];
+    methodology_note: string;
+  };
+  primary_mix_residual: PrimaryMixResidual | null;
+}
+
+export type RevisionFindingStatus = 'improved' | 'unchanged' | 'regressed';
+
+export interface RevisionSpectralBandDelta {
+  label: string;
+  low_hz: number;
+  high_hz: number;
+  v1_db: number | null;
+  v2_db: number | null;
+  delta_db: number | null;
+}
+
+export interface RevisionFindingVerification {
+  issue_id: string;
+  title: string;
+  domain: string;
+  classification: IssueClassification;
+  original_severity: IssueSeverity;
+  metric_key: string | null;
+  unit: string;
+  target_range: string;
+  before_value: number | null;
+  after_value: number | null;
+  delta_value: number | null;
+  status: RevisionFindingStatus;
+  summary: string;
+}
+
+export interface RevisionDeltaReport {
+  schema_version: '2.0.0';
+  comparison_id: string;
+  created_at: string;
+  v1_metadata: {
+    report_id: string | null;
+    filename: string;
+    duration_seconds: number | null;
+    sample_rate_hz: number | null;
+  };
+  v2_metadata: {
+    report_id: string | null;
+    filename: string;
+    duration_seconds: number | null;
+    sample_rate_hz: number | null;
+  };
+  metric_deltas: {
+    delta_integrated_lufs: number | null;
+    delta_true_peak_dbtp: number | null;
+    delta_lra_lu: number | null;
+    delta_phase_correlation: number | null;
+    delta_phase_correlation_min: number | null;
+    delta_crest_factor_db: number | null;
+    delta_sample_clipping_events: number | null;
+    before_after: Record<string, { v1: number | null; v2: number | null; unit: string }>;
+  };
+  delta_spectral_db: Record<StemBandKey, RevisionSpectralBandDelta>;
+  spectral_band_sources: {
+    v1: string;
+    v2: string;
+  };
+  finding_verifications: RevisionFindingVerification[];
+  new_v2_issues: Array<{
+    issue_id: string;
+    title: string;
+    domain: string;
+    classification: IssueClassification;
+    severity: IssueSeverity;
+  }>;
+  summary_counts: {
+    total_prior_findings: number;
+    improved: number;
+    unchanged: number;
+    regressed: number;
+    new_issues_in_v2: number;
+  };
+  v2_report: AnalysisReport;
+}
+
+export interface UserReportedDawContext {
+  source_tag: 'user_reported_context';
+  daw_name: string;
+  bus_routing: string;
+  plugin_chain_notes: string;
+  updated_at: string | null;
+}
+
 export interface ContractValidationResult {
   valid: boolean;
   errors: string[];
@@ -454,13 +634,25 @@ export function validateAnalysisReport(
     }
   }
 
-  // Verify Phase 3-6 extensions remain null
+  // Verify Phase 5+ extensions remain null while allowing implemented Phase 3/4 slots in live DSP mode
+  const implementedLiveExtensionSlots = new Set([
+    'streaming_estimates',
+    'stem_multitrack_report',
+    'revision_comparison',
+  ]);
   if (report.extensions) {
     for (const [extKey, extVal] of Object.entries(report.extensions)) {
       if (extVal !== null) {
-        errors.push(
-          `Phase Boundary Violation: Extension slot "${extKey}" must be null.`
-        );
+        const allowedInLiveDsp =
+          expectedMode !== 'demo' &&
+          report.is_demonstration_data === false &&
+          implementedLiveExtensionSlots.has(extKey) &&
+          typeof extVal === 'object';
+        if (!allowedInLiveDsp) {
+          errors.push(
+            `Phase Boundary Violation: Extension slot "${extKey}" must be null.`
+          );
+        }
       }
     }
   }

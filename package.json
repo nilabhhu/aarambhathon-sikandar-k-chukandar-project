@@ -9,7 +9,7 @@
     "preview": "npx vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/contracts/analysisContract.test.ts src/contracts/backendIntegration.test.ts src/audio/studioDspMath.test.ts",
+    "test": "tsx --test src/contracts/analysisContract.test.ts src/contracts/backendIntegration.test.ts src/audio/studioDspMath.test.ts src/audio/phase4Logic.test.ts",
     "test:live": "node scripts/test_live_endpoints.js",
     "test:browser": "node scripts/automated_browser_acceptance.js"
   },

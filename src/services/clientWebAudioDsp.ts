@@ -32,9 +32,20 @@ import {
   MeasurementValue,
   MixRecommendation,
   MixStage,
+  PrimaryMixResidual,
+  StemAnalysisItem,
+  StemBandKey,
+  StemMultitrackReport,
   TimelineBucket,
   TimelineSeries,
 } from '../contracts/analysisContract';
+import {
+  buildPairwiseOverlapMatrixPure,
+  checkStemDurationAlignment,
+  MAX_STEM_DURATION_MISMATCH_MS,
+  SIX_OCTAVE_BAND_DEFS,
+  validateOriginalStemFiles,
+} from '../audio/phase4Logic';
 
 interface DiagnosticResult {
   issues: AnalysisIssue[];
@@ -1111,6 +1122,375 @@ export async function analyzeAudioWithClientWebAudio(
     };
 
     return report;
+  } finally {
+    if (audioCtx.state !== 'closed') {
+      try {
+        await audioCtx.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+function measureSixBandAndCentroidFromChannels(
+  channelsData: Float32Array[],
+  sampleRate: number
+): { sixBands: Record<StemBandKey, number | null>; centroidHz: number | null } {
+  const n = channelsData[0]?.length ?? 0;
+  const fftSize = Math.min(4096, Math.max(512, Math.pow(2, Math.floor(Math.log2(Math.max(512, n))))));
+  if (n < fftSize) {
+    return {
+      sixBands: { sub: null, low: null, low_mid: null, high_mid: null, presence: null, air: null },
+      centroidHz: null,
+    };
+  }
+
+  const hann = new Float32Array(fftSize);
+  let winPower = 0;
+  for (let i = 0; i < fftSize; i++) {
+    const w = 0.5 * (1.0 - Math.cos((2.0 * Math.PI * i) / (fftSize - 1)));
+    hann[i] = w;
+    winPower += w * w;
+  }
+
+  const hop = fftSize >> 1;
+  const numBlocks = Math.max(1, Math.floor((n - fftSize) / hop) + 1);
+  const blockStep = Math.max(1, Math.floor(numBlocks / 36));
+  const halfBins = fftSize >> 1;
+  const avgPsd = new Float64Array(halfBins);
+  const real = new Float32Array(fftSize);
+  const imag = new Float32Array(fftSize);
+  let count = 0;
+
+  for (let c = 0; c < channelsData.length; c++) {
+    const ch = channelsData[c];
+    for (let b = 0; b < numBlocks; b += blockStep) {
+      const start = b * hop;
+      for (let i = 0; i < fftSize; i++) {
+        real[i] = ch[start + i] * hann[i];
+        imag[i] = 0;
+      }
+      fftRadix2(real, imag);
+      for (let k = 1; k < halfBins; k++) {
+        const magSq = real[k] * real[k] + imag[k] * imag[k];
+        avgPsd[k] += (2.0 * magSq) / (fftSize * winPower);
+      }
+      count++;
+    }
+  }
+
+  const hzPerBin = sampleRate / fftSize;
+  const nyquist = sampleRate / 2;
+  let weightedFreqSum = 0;
+  let totalAudiblePower = 0;
+
+  for (let k = 1; k < halfBins; k++) {
+    const freq = k * hzPerBin;
+    const p = avgPsd[k] / Math.max(1, count);
+    if (freq >= 20 && freq <= Math.min(20000, nyquist)) {
+      weightedFreqSum += freq * p;
+      totalAudiblePower += p;
+    }
+  }
+
+  const centroidHz =
+    totalAudiblePower > 1e-15 ? roundTo(weightedFreqSum / totalAudiblePower, 1) : null;
+
+  const sixBands = {} as Record<StemBandKey, number | null>;
+  for (const band of SIX_OCTAVE_BAND_DEFS) {
+    if (nyquist < band.high_hz && band.high_hz >= 18000) {
+      sixBands[band.key] = null;
+      continue;
+    }
+    const b0 = Math.max(1, Math.floor(band.low_hz / hzPerBin));
+    const b1 = Math.min(halfBins - 1, Math.ceil(Math.min(band.high_hz, nyquist) / hzPerBin));
+    if (b1 < b0) {
+      sixBands[band.key] = null;
+      continue;
+    }
+    let bandPower = 0;
+    for (let k = b0; k <= b1; k++) {
+      bandPower += avgPsd[k] / Math.max(1, count);
+    }
+    sixBands[band.key] = bandPower <= 1e-12 ? -120.0 : roundTo(10.0 * Math.log10(bandPower), 1);
+  }
+
+  return { sixBands, centroidHz };
+}
+
+function measureIntegratedLufsFromChannels(
+  channelsData: Float32Array[],
+  sampleRate: number
+): number | null {
+  const numSamples = channelsData[0]?.length ?? 0;
+  const blockSize = Math.round(0.4 * sampleRate);
+  if (numSamples < blockSize) return null;
+
+  const kWeighted = channelsData.map((ch) => applyKWeighting(ch, sampleRate));
+  const hopSize = Math.max(1, Math.round(0.1 * sampleRate));
+  const blockPowers: number[] = [];
+
+  for (let start = 0; start + blockSize <= numSamples; start += hopSize) {
+    let blockSum = 0;
+    for (let c = 0; c < kWeighted.length; c++) {
+      const ch = kWeighted[c];
+      let chSum = 0;
+      for (let j = 0; j < blockSize; j++) {
+        const s = ch[start + j];
+        chSum += s * s;
+      }
+      blockSum += chSum / blockSize;
+    }
+    blockPowers.push(blockSum);
+  }
+
+  const absThresh = Math.pow(10, (-70.0 + 0.691) / 10.0);
+  const nonSilent = blockPowers.filter((p) => p > absThresh);
+  if (nonSilent.length === 0) return null;
+  const avgUngated = nonSilent.reduce((a, b) => a + b, 0) / nonSilent.length;
+  const ungatedLufs = -0.691 + 10.0 * Math.log10(avgUngated);
+  const relThresh = Math.pow(10, (ungatedLufs - 10.0 + 0.691) / 10.0);
+  const gated = nonSilent.filter((p) => p > relThresh);
+  if (gated.length === 0) return null;
+  const avgGated = gated.reduce((a, b) => a + b, 0) / gated.length;
+  return roundTo(-0.691 + 10.0 * Math.log10(avgGated), 2);
+}
+
+export async function measureSixBandsFromFileClient(
+  file: File
+): Promise<Record<StemBandKey, number | null>> {
+  const AudioContextClass =
+    window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) {
+    return { sub: null, low: null, low_mid: null, high_mid: null, presence: null, air: null };
+  }
+  const audioCtx = new AudioContextClass();
+  try {
+    const ab = await file.arrayBuffer();
+    const buf = await audioCtx.decodeAudioData(ab);
+    const channelsData: Float32Array[] = [];
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      channelsData.push(buf.getChannelData(c));
+    }
+    return measureSixBandAndCentroidFromChannels(channelsData, buf.sampleRate).sixBands;
+  } finally {
+    if (audioCtx.state !== 'closed') {
+      try {
+        await audioCtx.close();
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
+/**
+ * Phase 4 Client-Side Web Audio Original Stem Diagnostics Fallback.
+ * Enforces Rule 1 (2–8 user stems only), <=50 ms duration alignment check,
+ * per-stem LUFS / Sample Peak / True Peak / Spectral Centroid / 6-band FFT,
+ * pairwise overlap matrix, and optional primary mix residual summary.
+ */
+export async function analyzeStemsWithClientWebAudio(
+  stemFiles: File[],
+  primaryMixFile?: File | null
+): Promise<StemMultitrackReport> {
+  const validation = validateOriginalStemFiles(stemFiles);
+  if (!validation.valid) {
+    const err = new Error(validation.errorMessage || 'Invalid stem upload.');
+    (err as any).errorCode = validation.errorCode;
+    throw err;
+  }
+
+  const AudioContextClass =
+    window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextClass) {
+    throw new Error('Web Audio API is unavailable in this browser.');
+  }
+
+  const audioCtx = new AudioContextClass();
+  try {
+    const decodedStems: Array<{ file: File; buffer: AudioBuffer }> = [];
+    for (const f of stemFiles) {
+      const ab = await f.arrayBuffer();
+      const buffer = await audioCtx.decodeAudioData(ab);
+      decodedStems.push({ file: f, buffer });
+    }
+
+    const alignCheck = checkStemDurationAlignment(
+      decodedStems.map((s) => ({ name: s.file.name, durationSec: s.buffer.duration }))
+    );
+    if (!alignCheck.aligned) {
+      const err = new Error(alignCheck.errorMessage || 'Uploaded stems are misaligned (> 50 ms).');
+      (err as any).errorCode = 'STEM_ALIGNMENT_MISMATCH';
+      throw err;
+    }
+
+    const sampleRates = Array.from(new Set(decodedStems.map((s) => s.buffer.sampleRate))).sort(
+      (a, b) => a - b
+    );
+    const warnings: string[] = [];
+    if (sampleRates.length > 1) {
+      warnings.push(
+        `Mixed stem sample rates detected (${sampleRates.map((r) => `${r} Hz`).join(', ')}). Normalized to ${audioCtx.sampleRate} Hz in Web Audio.`
+      );
+    }
+
+    const analyzedStems: StemAnalysisItem[] = [];
+    for (let idx = 0; idx < decodedStems.length; idx++) {
+      const { file, buffer } = decodedStems[idx];
+      const channelsData: Float32Array[] = [];
+      let maxAbs = 0;
+      let sumSq = 0;
+      let totalSamples = 0;
+
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const ch = buffer.getChannelData(c);
+        channelsData.push(ch);
+        for (let i = 0; i < ch.length; i++) {
+          const a = Math.abs(ch[i]);
+          if (a > maxAbs) maxAbs = a;
+          sumSq += a * a;
+        }
+        totalSamples += ch.length;
+      }
+
+      const samplePeakDbfs = maxAbs > 1e-9 ? roundTo(20.0 * Math.log10(maxAbs), 2) : null;
+      const truePeakDbtp = maxAbs > 1e-9 ? roundTo(computeTruePeak(channelsData, maxAbs), 2) : null;
+      const rmsLin = totalSamples > 0 ? Math.sqrt(sumSq / totalSamples) : 0;
+      const rmsDbfs = rmsLin > 1e-9 ? roundTo(20.0 * Math.log10(rmsLin), 2) : null;
+      const headroomDb =
+        truePeakDbtp !== null
+          ? roundTo(-truePeakDbtp, 2)
+          : samplePeakDbfs !== null
+          ? roundTo(-samplePeakDbfs, 2)
+          : null;
+      const integratedLufs = measureIntegratedLufsFromChannels(channelsData, buffer.sampleRate);
+      const { sixBands, centroidHz } = measureSixBandAndCentroidFromChannels(
+        channelsData,
+        buffer.sampleRate
+      );
+
+      analyzedStems.push({
+        stem_id: `stem-${idx + 1}`,
+        stem_name: file.name,
+        stem_role: 'original_stem',
+        stem_source_type: 'user_uploaded_original',
+        duration_seconds: roundTo(buffer.duration, 3),
+        sample_rate_hz: buffer.sampleRate,
+        channels: buffer.numberOfChannels,
+        file_size_bytes: file.size,
+        integrated_lufs: integratedLufs,
+        sample_peak_dbfs: samplePeakDbfs,
+        true_peak_dbtp: truePeakDbtp,
+        headroom_db: headroomDb,
+        rms_dbfs: rmsDbfs,
+        spectral_centroid_hz: centroidHz,
+        six_band_energies_db: sixBands,
+      });
+    }
+
+    const overlapMatrix = buildPairwiseOverlapMatrixPure(analyzedStems);
+
+    // Optional stem-sum vs primary stereo mix residual
+    let primaryMixResidual: PrimaryMixResidual | null = null;
+    if (primaryMixFile) {
+      try {
+        const pAb = await primaryMixFile.arrayBuffer();
+        const pBuf = await audioCtx.decodeAudioData(pAb);
+        const pDiffMs = Math.abs(pBuf.duration - alignCheck.referenceDurationSec) * 1000;
+        if (pDiffMs <= MAX_STEM_DURATION_MISMATCH_MS) {
+          const minFrames = Math.min(
+            pBuf.length,
+            ...decodedStems.map((d) => d.buffer.length)
+          );
+          const pL = pBuf.getChannelData(0);
+          const pR = pBuf.numberOfChannels > 1 ? pBuf.getChannelData(1) : pL;
+          let sumSqMix = 0;
+          let sumSqStems = 0;
+          let sumSqRes = 0;
+          let peakRes = 0;
+
+          for (let i = 0; i < minFrames; i++) {
+            let sL = 0;
+            let sR = 0;
+            for (const d of decodedStems) {
+              const c0 = d.buffer.getChannelData(0)[i];
+              const c1 = d.buffer.numberOfChannels > 1 ? d.buffer.getChannelData(1)[i] : c0;
+              sL += c0;
+              sR += c1;
+            }
+            const mL = pL[i];
+            const mR = pR[i];
+            const dL = mL - sL;
+            const dR = mR - sR;
+            sumSqMix += mL * mL + mR * mR;
+            sumSqStems += sL * sL + sR * sR;
+            sumSqRes += dL * dL + dR * dR;
+            const ap = Math.max(Math.abs(dL), Math.abs(dR));
+            if (ap > peakRes) peakRes = ap;
+          }
+
+          const totalN = Math.max(1, minFrames * 2);
+          const rmsMix = Math.sqrt(sumSqMix / totalN);
+          const rmsStems = Math.sqrt(sumSqStems / totalN);
+          const rmsRes = Math.sqrt(sumSqRes / totalN);
+          const mixDb = rmsMix > 1e-12 ? roundTo(20 * Math.log10(rmsMix), 2) : null;
+          const stemsDb = rmsStems > 1e-12 ? roundTo(20 * Math.log10(rmsStems), 2) : null;
+
+          primaryMixResidual = {
+            available: true,
+            primary_mix_filename: primaryMixFile.name,
+            primary_mix_rms_dbfs: mixDb,
+            stem_sum_rms_dbfs: stemsDb,
+            rms_difference_db: mixDb !== null && stemsDb !== null ? roundTo(mixDb - stemsDb, 2) : null,
+            residual_rms_dbfs: rmsRes > 1e-12 ? roundTo(20 * Math.log10(rmsRes), 2) : -120.0,
+            residual_peak_dbfs: peakRes > 1e-12 ? roundTo(20 * Math.log10(peakRes), 2) : -120.0,
+            residual_energy_ratio_percent:
+              rmsMix > 1e-12 ? roundTo(Math.min(999.9, (rmsRes / rmsMix) * 100), 1) : 0,
+            interpretation_note:
+              'Non-zero residual between the linear stem sum and stereo mixdown is expected when master-bus compression, saturation, limiting, stereo bus EQ, or parallel send FX were applied during bounce, or if any DAW stem was omitted.',
+          };
+        } else {
+          warnings.push(
+            `Primary stereo mix duration differs from stems by ${pDiffMs.toFixed(1)} ms (> 50 ms); stem-sum residual skipped.`
+          );
+          primaryMixResidual = {
+            available: false,
+            primary_mix_filename: primaryMixFile.name,
+            reason: 'primary_mix_duration_mismatch',
+            interpretation_note:
+              'Primary stereo mix duration differed from uploaded stems by more than 50 ms; stem-sum residual was skipped.',
+          };
+        }
+      } catch {
+        // Ignore residual decode failure without breaking stem matrix
+      }
+    }
+
+    return {
+      schema_version: '2.0.0',
+      analysis_id: `stems-webaudio-${Date.now()}`,
+      created_at: new Date().toISOString(),
+      has_user_stems: true,
+      stem_source_type: 'user_uploaded_original',
+      rule_1_compliance_notice:
+        'Product Rule 1 Verified: All stem metrics were computed exclusively from genuine user-uploaded original DAW stems. Zero AI stem separation was performed.',
+      stem_count: analyzedStems.length,
+      total_upload_bytes: validation.totalBytes,
+      alignment: {
+        aligned: true,
+        tolerance_ms: MAX_STEM_DURATION_MISMATCH_MS,
+        max_duration_diff_ms: alignCheck.maxDiffMs,
+        reference_duration_seconds: roundTo(alignCheck.referenceDurationSec, 3),
+        sample_rates_hz: sampleRates,
+        normalized_sample_rate_hz: sampleRates[sampleRates.length - 1] ?? audioCtx.sampleRate,
+        warnings,
+      },
+      stems: analyzedStems,
+      overlap_matrix: overlapMatrix,
+      primary_mix_residual: primaryMixResidual,
+    };
   } finally {
     if (audioCtx.state !== 'closed') {
       try {
