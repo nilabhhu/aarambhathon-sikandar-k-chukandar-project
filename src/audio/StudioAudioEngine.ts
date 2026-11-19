@@ -47,6 +47,7 @@ export interface StudioEngineSnapshot {
   primaryChannels: number;
   primaryLufs: number | null;
   primarySixBands: SixBandMeasurements | null;
+  primarySpectrumBins: number[] | null;
 
   hasReferenceTrack: boolean;
   referenceFileName: string | null;
@@ -246,7 +247,10 @@ function fftRadix2(real: Float32Array, imag: Float32Array): void {
  * Computes exact 6-band Welch PSD energy (dBFS) across:
  * Sub (20–60), Low (60–250), Low-Mid (250–800), High-Mid (800–4k), Presence (4k–10k), Air (10k–20k).
  */
-function measureSixBandSpectrumFromBuffer(buffer: AudioBuffer): SixBandMeasurements {
+function measureFullSpectrumFromBuffer(buffer: AudioBuffer): {
+  sixBands: SixBandMeasurements;
+  bins48: number[] | null;
+} {
   const sr = buffer.sampleRate;
   const nyquist = sr / 2;
   const channels = buffer.numberOfChannels;
@@ -254,7 +258,10 @@ function measureSixBandSpectrumFromBuffer(buffer: AudioBuffer): SixBandMeasureme
   const fftSize = Math.min(4096, Math.max(512, Math.pow(2, Math.floor(Math.log2(Math.max(512, n))))));
 
   if (n < fftSize) {
-    return { sub: null, low: null, low_mid: null, high_mid: null, presence: null, air: null };
+    return {
+      sixBands: { sub: null, low: null, low_mid: null, high_mid: null, presence: null, air: null },
+      bins48: null,
+    };
   }
 
   const hann = new Float32Array(fftSize);
@@ -308,7 +315,7 @@ function measureSixBandSpectrumFromBuffer(buffer: AudioBuffer): SixBandMeasureme
     return Math.round(10.0 * Math.log10(sum) * 10) / 10;
   };
 
-  return {
+  const sixBands: SixBandMeasurements = {
     sub: bandPower(20, 60),
     low: bandPower(60, 250),
     low_mid: bandPower(250, 800),
@@ -316,6 +323,31 @@ function measureSixBandSpectrumFromBuffer(buffer: AudioBuffer): SixBandMeasureme
     presence: bandPower(4000, 10000),
     air: bandPower(10000, 20000),
   };
+
+  // Extract 48 log-spaced bins (8 per retro band: 20-60, 60-250, 250-500, 500-2k, 2k-6k, 6k-20k)
+  const retroRanges: Array<[number, number]> = [
+    [20, 60],
+    [60, 250],
+    [250, 500],
+    [500, 2000],
+    [2000, 6000],
+    [6000, 20000],
+  ];
+  const bins48: number[] = [];
+  for (const [fMin, fMax] of retroRanges) {
+    for (let k = 0; k < 8; k++) {
+      const subLo = fMin * Math.pow(fMax / fMin, k / 8);
+      const subHi = fMin * Math.pow(fMax / fMin, (k + 1) / 8);
+      const val = bandPower(subLo, subHi);
+      bins48.push(val !== null ? val : -54.0);
+    }
+  }
+
+  return { sixBands, bins48 };
+}
+
+function measureSixBandSpectrumFromBuffer(buffer: AudioBuffer): SixBandMeasurements {
+  return measureFullSpectrumFromBuffer(buffer).sixBands;
 }
 
 function extractWaveformPeaks(buffer: AudioBuffer, bucketCount: number = 220): WaveformPeakBucket[] {
@@ -364,6 +396,7 @@ export class StudioAudioEngine {
   private primaryFile: File | null = null;
   private primaryLufs: number | null = null;
   private primarySixBands: SixBandMeasurements | null = null;
+  private primarySpectrumBins: number[] | null = null;
   private primaryPeaksCache: WaveformPeakBucket[] | null = null;
 
   private referenceBuffer: AudioBuffer | null = null;
@@ -459,6 +492,7 @@ export class StudioAudioEngine {
       primaryChannels: this.primaryBuffer?.numberOfChannels ?? 0,
       primaryLufs: this.primaryLufs,
       primarySixBands: this.primarySixBands,
+      primarySpectrumBins: this.primarySpectrumBins,
 
       hasReferenceTrack: Boolean(this.referenceBuffer),
       referenceFileName: this.referenceFileName,
@@ -760,7 +794,9 @@ export class StudioAudioEngine {
 
       this.primaryBuffer = decoded;
       this.primaryPeaksCache = extractWaveformPeaks(decoded, 220);
-      this.primarySixBands = measureSixBandSpectrumFromBuffer(decoded);
+      const spec = measureFullSpectrumFromBuffer(decoded);
+      this.primarySixBands = spec.sixBands;
+      this.primarySpectrumBins = spec.bins48;
       this.primaryLufs =
         knownIntegratedLufs !== undefined && knownIntegratedLufs !== null
           ? knownIntegratedLufs
@@ -778,6 +814,7 @@ export class StudioAudioEngine {
       this.primaryBuffer = null;
       this.primaryPeaksCache = null;
       this.primarySixBands = null;
+      this.primarySpectrumBins = null;
       this.playbackError = isAiff
         ? 'Browser Web Audio cannot natively decode AIFF streams. Mathematical DSP measurements from the server remain active.'
         : err?.message || 'Unable to decode this audio file in Web Audio.';
@@ -904,6 +941,7 @@ export class StudioAudioEngine {
     this.primaryFile = null;
     this.primaryLufs = null;
     this.primarySixBands = null;
+    this.primarySpectrumBins = null;
     this.primaryPeaksCache = null;
     this.revisionV2Buffer = null;
     this.revisionV2FileName = null;

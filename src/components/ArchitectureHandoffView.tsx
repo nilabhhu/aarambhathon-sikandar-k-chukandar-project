@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { motion } from 'motion/react';
 import {
   AnalysisReport,
   validateAnalysisReport,
 } from '../contracts/analysisContract';
+import { TACTILE_TAP } from '../lib/motion';
 import {
   CheckCircle2,
   FileCode,
@@ -103,20 +105,20 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
   return (
     <div className="space-y-8">
       {/* Header & Live Contract Verification Status */}
-      <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-zinc-200 dark:border-zinc-800">
+      <section className="studio-elevated squircle-outer p-6 md:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4 pb-5 studio-hairline-b">
           <div>
-            <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 5 · AI MENTOR, PRIVACY CONTROLS &amp; SHARED CONTRACT SPECIFICATION
+            <p className="text-xs font-mono text-[var(--accent-primary)] font-medium">
+              Shared Engine Contract &amp; Privacy Architecture
             </p>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+            <h1 className="text-2xl font-bold text-[var(--text-primary)] mt-1">
               System Architecture &amp; Implementation Contract
             </h1>
-            <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-3xl">
+            <p className="text-sm text-[var(--text-secondary)] mt-1 max-w-3xl leading-relaxed">
               Single source of truth for repository layout, shared JSON Schema v2.0.0 data contracts, streaming multitrack stem DSP (zero AI separation), revision delta comparison, and consent-gated Gemini 2.5 Flash AI Mentor with deterministic offline fallback.
             </p>
           </div>
-          <div className="flex items-center gap-2 text-xs font-mono text-[#3A7269] dark:text-teal-400 bg-[#3A7269]/10 dark:bg-teal-950/50 border border-[#3A7269]/25 dark:border-teal-800 px-3 py-2 rounded-md">
+          <div className="flex items-center gap-2 text-xs font-mono text-[var(--accent-primary)] bg-[var(--accent-soft)] border border-[var(--border-active-color)] px-3.5 py-2 squircle-inner">
             <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>
               Contract Validator: {validation.valid ? 'PASS (0 Errors)' : `FAIL (${validation.errors.length})`}
@@ -126,12 +128,12 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
 
         {/* Repository Structure & Module Responsibilities */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Layers className="w-4 h-4 text-[#3A7269] dark:text-teal-400" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+              <Layers className="w-4 h-4 text-[var(--accent-primary)]" />
               <span>Repository Architecture Layout</span>
             </h2>
-            <pre className="mt-3 p-4 rounded-lg bg-[#FAFAFA] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-800 dark:text-zinc-200 overflow-x-auto leading-relaxed">
+            <pre className="mt-3 p-4 squircle-inner studio-surface text-xs font-mono text-[var(--text-primary)] overflow-x-auto leading-relaxed">
 {`aarambhathon-sikandar-k-chukandar-project/
 ├── contracts/
 │   ├── analysis_report.schema.json # JSON Schema (v2.0.0)
@@ -157,70 +159,70 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             </pre>
           </div>
 
-          <div>
-            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-[#3A7269] dark:text-teal-400" />
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-[var(--accent-primary)]" />
               <span>API Endpoint &amp; Engine Capability Matrix</span>
             </h2>
-            <div className="mt-3 border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-x-auto">
+            <div className="mt-3 border border-[var(--border-hairline-color)] squircle-inner overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-[#FAFAFA] dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 font-mono text-[11px] text-zinc-500 dark:text-zinc-400">
-                    <th className="py-2 px-3 whitespace-nowrap">Method &amp; Route</th>
-                    <th className="py-2 px-3 whitespace-nowrap">Milestone</th>
-                    <th className="py-2 px-3">Current Status</th>
+                  <tr className="bg-[var(--bg-surface)] studio-hairline-b font-mono text-[11px] text-[var(--text-secondary)]">
+                    <th className="py-2.5 px-3 whitespace-nowrap">Method &amp; Route</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">Milestone</th>
+                    <th className="py-2.5 px-3">Current Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800 font-mono">
+                <tbody className="divide-y divide-[var(--border-hairline-color)] font-mono">
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/health</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Operational)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Foundation</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (Operational)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/capabilities</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Implemented)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Foundation</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (Implemented)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">GET /api/v1/contracts/schema</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Foundation</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (v2.0.0)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Foundation</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (v2.0.0)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/dsp</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 2</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (FastAPI / Web Audio)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 2</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (FastAPI / Web Audio)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">StudioAudioEngine A/B + Lab</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 3</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">Active (Client Web Audio)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 3</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">Active (Client Web Audio)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/streaming</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 3</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Spotify/Apple/YT)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 3</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (Spotify/Apple/YT)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/analyze/stems</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 4</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Original Stems · 422 Rule 1)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 4</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (Original Stems · 422 Rule 1)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/compare/revisions</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 4</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (v1 → v2 Deltas Active)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 4</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (v1 → v2 Deltas Active)</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">AI Stem Separation</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Rule 1</td>
-                    <td className="py-2 px-3 text-rose-700 dark:text-rose-400">PROHIBITED_BY_PRODUCT_RULE</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Rule 1</td>
+                    <td className="py-2 px-3 text-[var(--status-alert)]">PROHIBITED_BY_PRODUCT_RULE</td>
                   </tr>
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/interpret/ai</td>
-                    <td className="py-2 px-3 whitespace-nowrap">Phase 5</td>
-                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Phase 5 · Consent-Gated)</td>
+                    <td className="py-2 px-3 whitespace-nowrap text-[var(--text-secondary)]">Phase 5</td>
+                    <td className="py-2 px-3 text-[var(--status-safe)]">200 OK (Phase 5 · Consent-Gated)</td>
                   </tr>
                 </tbody>
               </table>
@@ -230,66 +232,67 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
       </section>
 
       {/* Live Backend Integration Probe */}
-      <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
+      <section className="studio-elevated squircle-outer p-6 md:p-7">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 studio-hairline-b">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
-              <Server className="w-4 h-4 text-[#3A7269] dark:text-teal-400" />
-              <span>LIVE RELATIVE URL INTEGRATION VERIFIER</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-[var(--accent-primary)]">
+              <Server className="w-4 h-4" />
+              <span>Live Relative URL Integration Verifier</span>
             </div>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+            <h2 className="text-base font-bold text-[var(--text-primary)] mt-1">
               Backend API Live Endpoint Probe (Relative Routing)
             </h2>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
               Verify live communication between the browser client and FastAPI DSP service using relative API URLs.
             </p>
           </div>
 
-          <button
+          <motion.button
             type="button"
+            whileTap={TACTILE_TAP}
             onClick={runEndpointProbe}
             disabled={probing}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3A7269] hover:bg-[#2F5E56] text-white text-xs font-medium disabled:opacity-50 transition-colors"
+            className="inline-flex items-center gap-2 px-4 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
           >
             {probing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
             <span>{probing ? 'Probing Endpoints...' : 'Test Backend Endpoints'}</span>
-          </button>
+          </motion.button>
         </div>
 
         {probeResults && (
-          <div className="mt-4 overflow-x-auto">
+          <div className="mt-4 overflow-x-auto squircle-inner border border-[var(--border-hairline-color)]">
             <table className="w-full text-left border-collapse text-xs font-mono">
               <thead>
-                <tr className="border-b border-zinc-200 dark:border-zinc-800 text-[11px] text-zinc-500 dark:text-zinc-400 uppercase">
-                  <th className="py-2 px-3">Method &amp; Endpoint</th>
-                  <th className="py-2 px-3">Expected</th>
-                  <th className="py-2 px-3">Actual Status</th>
-                  <th className="py-2 px-3">Latency</th>
-                  <th className="py-2 px-3">Response Snippet</th>
+                <tr className="bg-[var(--bg-surface)] studio-hairline-b text-[11px] text-[var(--text-secondary)]">
+                  <th className="py-2.5 px-3">Method &amp; Endpoint</th>
+                  <th className="py-2.5 px-3">Expected</th>
+                  <th className="py-2.5 px-3">Actual Status</th>
+                  <th className="py-2.5 px-3">Latency</th>
+                  <th className="py-2.5 px-3">Response Snippet</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              <tbody className="divide-y divide-[var(--border-hairline-color)]">
                 {probeResults.map((res, i) => (
-                  <tr key={i} className="hover:bg-[#FAFAFA] dark:hover:bg-zinc-800/50">
-                    <td className="py-2.5 px-3 font-semibold text-zinc-900 dark:text-zinc-100">
+                  <tr key={i} className="hover:bg-[var(--bg-surface)]/70 transition-colors">
+                    <td className="py-2.5 px-3 font-semibold text-[var(--text-primary)] whitespace-nowrap">
                       {res.method} {res.endpoint}
                     </td>
-                    <td className="py-2.5 px-3 text-zinc-500">HTTP {res.expectedStatus}</td>
-                    <td className="py-2.5 px-3">
+                    <td className="py-2.5 px-3 text-[var(--text-secondary)] whitespace-nowrap">
+                      HTTP {res.expectedStatus}
+                    </td>
+                    <td className="py-2.5 px-3 whitespace-nowrap">
                       <span
                         className={`font-semibold ${
-                          res.success
-                            ? 'text-[#3A7269] dark:text-teal-400'
-                            : 'text-rose-700 dark:text-rose-400'
+                          res.success ? 'text-[var(--status-safe)]' : 'text-[var(--status-alert)]'
                         }`}
                       >
                         {res.statusText || 'Error'}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-zinc-500 tabular-nums">
+                    <td className="py-2.5 px-3 text-[var(--text-secondary)] tabular-nums whitespace-nowrap">
                       {res.latencyMs !== undefined ? `${res.latencyMs} ms` : '—'}
                     </td>
-                    <td className="py-2.5 px-3 text-[11px] text-zinc-600 dark:text-zinc-400 max-w-xs truncate">
+                    <td className="py-2.5 px-3 text-[11px] text-[var(--text-secondary)] max-w-xs truncate">
                       {res.responsePreview}
                     </td>
                   </tr>
@@ -301,113 +304,104 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
       </section>
 
       {/* Six-Stage Architectural Roadmap */}
-      <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6">
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+      <section className="studio-elevated squircle-outer p-6 md:p-7">
+        <h2 className="text-base font-bold text-[var(--text-primary)]">
           Architectural Delivery Roadmap
         </h2>
-        <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1">
+        <p className="text-xs text-[var(--text-secondary)] mt-1">
           Every milestone delivers self-contained value while strictly preserving prior contract invariants.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
-            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              MILESTONE 1 · COMPLETE
+          {[
+            {
+              tag: 'Milestone 1 · Complete',
+              title: 'Contracts, Consent & Layouts',
+              body: 'Dual-interface UI foundation, 5-tier privacy gate, JSON Schema contract, deterministic unit suites.',
+              active: false,
+            },
+            {
+              tag: 'Phase 2 · Complete',
+              title: 'Core Mathematical DSP Engine',
+              body: 'FastAPI libebur128/SciPy + in-browser Web Audio DSP extracting true peaks, gated LUFS, phase, and PSD bands.',
+              active: false,
+            },
+            {
+              tag: 'Phase 3 · Complete',
+              title: 'Advanced Workbench & Translation Lab',
+              body: 'Sample-locked loudness-matched A/B, 15ms click-free ramps, Phone/Laptop filter lab, 60fps canvas waveform, and 6-band spectral curves.',
+              active: false,
+            },
+            {
+              tag: 'Phase 4 · Complete',
+              title: 'Original Stems & Revision Delta',
+              body: 'Streaming 2–8 original user stem overlap matrix (Rule 1: zero AI separation), optional DAW context drawer, and loudness-matched v1 → v2 revision verification.',
+              active: false,
+            },
+            {
+              tag: 'Phase 5 · Active Workbench',
+              title: 'Consent-Gated AI Mentor & Artist Vision',
+              body: 'Server-side Gemini 2.5 Flash structured coaching strictly grounded in measured DSP evidence IDs with deterministic offline fallback and zero audio bytes by default (Rules 2–5).',
+              active: true,
+            },
+            {
+              tag: 'Phase 6 · Scheduled',
+              title: 'End-to-End QA & Production Hardening',
+              body: 'Ephemeral cleanup audits, WCAG AA verification, and cross-browser codec resilience.',
+              active: false,
+            },
+          ].map((item) => (
+            <div
+              key={item.title}
+              className={`squircle-inner p-4 border ${
+                item.active
+                  ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]'
+                  : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)]'
+              }`}
+            >
+              <div
+                className={`text-[11px] font-mono font-semibold ${
+                  item.active ? 'text-[var(--accent-primary)]' : 'text-[var(--text-secondary)]'
+                }`}
+              >
+                {item.tag}
+              </div>
+              <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
+                {item.title}
+              </h3>
+              <p className="text-xs text-[var(--text-secondary)] mt-1.5 leading-relaxed">
+                {item.body}
+              </p>
             </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Contracts, Consent &amp; Layouts
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Dual-interface UI foundation, 5-tier privacy gate, JSON Schema contract, deterministic unit suites.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
-            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 2 · COMPLETE
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Core Mathematical DSP Engine
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              FastAPI libebur128/SciPy + in-browser Web Audio DSP extracting true peaks, gated LUFS, phase, and PSD bands.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
-            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 3 · COMPLETE
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Advanced Workbench &amp; Translation Lab
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Sample-locked loudness-matched A/B, 15ms click-free ramps, Phone/Laptop filter lab, 60fps canvas waveform, and 6-band spectral curves.
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
-            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 4 · COMPLETE
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Original Stems &amp; Revision Delta
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Streaming 2–8 original user stem overlap matrix (Rule 1: zero AI separation), optional DAW context drawer, and loudness-matched v1 → v2 revision verification.
-            </p>
-          </div>
-
-          <div className="border border-[#3A7269] dark:border-teal-600 bg-[#3A7269]/[0.06] dark:bg-teal-950/30 rounded-lg p-4">
-            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 5 · ACTIVE WORKBENCH
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Consent-Gated AI Mentor &amp; Artist Vision
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Server-side Gemini 2.5 Flash structured coaching strictly grounded in measured DSP evidence IDs with deterministic offline fallback and zero audio bytes by default (Rules 2–5).
-            </p>
-          </div>
-
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
-            <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 6 · SCHEDULED
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              End-to-End QA &amp; Production Hardening
-            </h3>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Ephemeral cleanup audits, WCAG AA verification, and cross-browser codec resilience.
-            </p>
-          </div>
+          ))}
         </div>
       </section>
 
       {/* Contract Inspector Toggle */}
-      <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6">
+      <section className="studio-elevated squircle-outer p-6 md:p-7">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <h2 className="text-base font-bold text-[var(--text-primary)]">
               Live Contract Payload Inspector
             </h2>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
               Inspect the exact JSON data structure powering both Simple and Advanced Mix Check.
             </p>
           </div>
-          <button
+          <motion.button
             type="button"
+            whileTap={TACTILE_TAP}
             onClick={() => setShowRawJson(!showRawJson)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-xs font-mono text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-xs font-mono text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors whitespace-nowrap cursor-pointer"
           >
-            <FileCode className="w-3.5 h-3.5" />
+            <FileCode className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
             <span>{showRawJson ? 'Hide Raw JSON Payload' : 'View Full JSON Payload'}</span>
-          </button>
+          </motion.button>
         </div>
 
         {showRawJson && (
           <div className="mt-4">
-            <pre className="p-4 rounded-lg bg-zinc-950 text-zinc-200 text-xs font-mono overflow-x-auto max-h-96 border border-zinc-800">
+            <pre className="p-4 squircle-inner bg-[#0D1211] text-[#E6ECEA] text-xs font-mono overflow-x-auto max-h-96 border border-[var(--border-hairline-color)]">
               {JSON.stringify(report, null, 2)}
             </pre>
           </div>

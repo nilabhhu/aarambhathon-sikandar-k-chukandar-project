@@ -1,15 +1,19 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   AnalysisReport,
   GenreId,
   MixStage,
 } from '../contracts/analysisContract';
 import { GENRE_LABELS, MIX_STAGE_LABELS } from '../contracts/demoFixtures';
+import { SixBandMeasurements } from '../audio/spectralProfile';
 import {
-  buildSixBandSpectralProfile,
-  SixBandMeasurements,
-  SpectralBandDatum,
-} from '../audio/spectralProfile';
+  BARS_PER_BAND,
+  buildRetroSpectrumModel,
+  RetroBandId,
+  RetroProblemZone,
+} from '../audio/retroSpectrumModel';
+import { TACTILE_TAP } from '../lib/motion';
 
 interface SpectralTonalBalanceGraphProps {
   report: AnalysisReport;
@@ -18,47 +22,22 @@ interface SpectralTonalBalanceGraphProps {
   measuredSixBands?: SixBandMeasurements | null;
   referenceSixBands?: SixBandMeasurements | null;
   referenceFileName?: string | null;
+  spectrumBins?: number[] | null;
   variant?: 'simple' | 'advanced';
+  focusedIssueId?: string | null;
+  flashNonce?: number;
   onSelectFlaggedIssue?: (issueId: string) => void;
 }
 
-const CHART_MIN_DB = -48;
-const CHART_MAX_DB = -6;
+const CHART_MIN_DB = -52;
+const CHART_MAX_DB = -4;
 
 function clampDb(val: number): number {
   return Math.max(CHART_MIN_DB, Math.min(CHART_MAX_DB, val));
 }
 
-function buildSmoothPath(points: Array<{ x: number; y: number }>): string {
-  if (points.length === 0) return '';
-  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-
-  let d = `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[Math.min(points.length - 1, i + 2)];
-
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-
-    d += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
-  }
-  return d;
-}
-
-function buildEnvelopePolygon(
-  topPoints: Array<{ x: number; y: number }>,
-  bottomPoints: Array<{ x: number; y: number }>
-): string {
-  if (topPoints.length === 0 || bottomPoints.length === 0) return '';
-  const topPath = buildSmoothPath(topPoints);
-  const reversedBottom = [...bottomPoints].reverse();
-  const bottomCurve = buildSmoothPath(reversedBottom).replace(/^M/, 'L');
-  return `${topPath} ${bottomCurve} Z`;
+function dbToNormalized(db: number): number {
+  return (clampDb(db) - CHART_MIN_DB) / (CHART_MAX_DB - CHART_MIN_DB);
 }
 
 export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps> = ({
@@ -68,539 +47,696 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
   measuredSixBands = null,
   referenceSixBands = null,
   referenceFileName = null,
+  spectrumBins = null,
   variant = 'simple',
+  focusedIssueId = null,
+  flashNonce = 0,
   onSelectFlaggedIssue,
 }) => {
-  const bands = useMemo(
+  const containerRef = useRef<HTMLElement | null>(null);
+
+  const model = useMemo(
     () =>
-      buildSixBandSpectralProfile({
+      buildRetroSpectrumModel({
         report,
         genre,
         mixStage,
         measuredSixBands,
         referenceSixBands,
+        spectrumBins,
       }),
-    [report, genre, mixStage, measuredSixBands, referenceSixBands]
+    [report, genre, mixStage, measuredSixBands, referenceSixBands, spectrumBins]
   );
 
-  // Default focused band to the first flagged band (or Low-Mid if none flagged) for clear immediate context
-  const defaultActiveIndex = useMemo(() => {
-    const flaggedIdx = bands.findIndex((b) => b.flaggedByActionPlan);
-    return flaggedIdx >= 0 ? flaggedIdx : 2;
-  }, [bands]);
+  const defaultFocusedBandId: RetroBandId | null = useMemo(() => {
+    if (model.problemZones.length > 0) {
+      return model.problemZones[0].bandId;
+    }
+    return null;
+  }, [model.problemZones]);
 
-  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
-  const activeIdx = hoveredIdx !== null ? hoveredIdx : defaultActiveIndex;
-  const activeBand: SpectralBandDatum | undefined = bands[activeIdx];
+  const [hoveredBandId, setHoveredBandId] = useState<RetroBandId | null>(null);
+  const [lockedBandId, setLockedBandId] = useState<RetroBandId | null>(defaultFocusedBandId);
+  const [flashingBandId, setFlashingBandId] = useState<RetroBandId | null>(null);
+  const [activeFlashKey, setActiveFlashKey] = useState<number>(0);
+
+  // Reset locked band cleanly when a new report arrives
+  useEffect(() => {
+    setLockedBandId(defaultFocusedBandId);
+    setHoveredBandId(null);
+  }, [report.report_id, defaultFocusedBandId]);
+
+  // Bidirectional sync: clicking an issue card below focuses + flashes its problem frequency zone
+  useEffect(() => {
+    if (!focusedIssueId || flashNonce <= 0) return;
+    const mappedBand = model.issueToBandMap[focusedIssueId];
+    if (!mappedBand) return;
+
+    setLockedBandId(mappedBand);
+    setHoveredBandId(null);
+    setFlashingBandId(mappedBand);
+    setActiveFlashKey(flashNonce);
+
+    const timer = window.setTimeout(() => {
+      setFlashingBandId((cur) => (cur === mappedBand ? null : cur));
+    }, 1550);
+
+    return () => window.clearTimeout(timer);
+  }, [focusedIssueId, flashNonce, model.issueToBandMap]);
+
+  const activeBandId: RetroBandId | null = hoveredBandId ?? lockedBandId;
+  const activeBand = model.bands.find((b) => b.id === activeBandId) ?? model.bands[2];
+  const activeZone: RetroProblemZone | null = activeBand?.problemZone ?? null;
 
   const isAdvanced = variant === 'advanced';
-  const svgWidth = 760;
-  const svgHeight = isAdvanced ? 268 : 236;
-  const padLeft = 52;
-  const padRight = 24;
-  const padTop = 24;
-  const padBottom = 46;
+  const svgWidth = 840;
+  const svgHeight = isAdvanced ? 304 : 276;
+  const padLeft = 48;
+  const padRight = 18;
+  const padTop = 34;
+  const padBottom = 50;
   const plotW = svgWidth - padLeft - padRight;
   const plotH = svgHeight - padTop - padBottom;
 
-  const dbToY = (db: number) => {
-    const clamped = clampDb(db);
-    const ratio = (clamped - CHART_MIN_DB) / (CHART_MAX_DB - CHART_MIN_DB);
-    return padTop + plotH * (1 - ratio);
+  const dbToY = (db: number) => padTop + plotH * (1 - dbToNormalized(db));
+  const bandW = plotW / model.bands.length;
+  const barSlotW = plotW / model.bars.length;
+  const barW = Math.max(5.5, barSlotW - 4.5);
+
+  const gridLines = [-6, -12, -18, -24, -30, -36, -42, -48];
+
+  // Build soft genre target envelope polygon (targetMaxDbfs ceiling down to targetMinDbfs floor)
+  const targetEnvelopePolygon = useMemo(() => {
+    const upper = model.bands.flatMap((band, idx) => {
+      const x0 = padLeft + idx * bandW;
+      const x1 = x0 + bandW;
+      const yMax = dbToY(band.targetMaxDbfs);
+      return [`${x0.toFixed(1)},${yMax.toFixed(1)}`, `${x1.toFixed(1)},${yMax.toFixed(1)}`];
+    });
+    const lower = [...model.bands]
+      .reverse()
+      .flatMap((band, revIdx) => {
+        const idx = model.bands.length - 1 - revIdx;
+        const x0 = padLeft + idx * bandW;
+        const x1 = x0 + bandW;
+        const yMin = dbToY(band.targetMinDbfs);
+        return [`${x1.toFixed(1)},${yMin.toFixed(1)}`, `${x0.toFixed(1)},${yMin.toFixed(1)}`];
+      });
+    return [...upper, ...lower].join(' ');
+  }, [model.bands, bandW]);
+
+  // Measured tonal curve polyline connecting all 48 bin tops
+  const measuredCurvePoints = model.bars
+    .map((bar) => {
+      const cx = padLeft + (bar.index + 0.5) * barSlotW;
+      const y = dbToY(bar.dbfs);
+      return `${cx.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  // Target ceiling polyline
+  const targetPolylinePoints = model.bars
+    .map((bar) => {
+      const cx = padLeft + (bar.index + 0.5) * barSlotW;
+      const y = dbToY(bar.targetMaxDbfs);
+      return `${cx.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(' ');
+
+  // Optional Reference Track B dashed curve
+  const hasRefB = model.bars.some((b) => b.referenceDbfs !== null);
+  const refBPolylinePoints = hasRefB
+    ? model.bars
+        .filter((b) => b.referenceDbfs !== null)
+        .map((bar) => {
+          const cx = padLeft + (bar.index + 0.5) * barSlotW;
+          const y = dbToY(bar.referenceDbfs!);
+          return `${cx.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(' ')
+    : '';
+
+  const handleSelectBand = (bandId: RetroBandId) => {
+    setLockedBandId(bandId);
+    setFlashingBandId(bandId);
+    setActiveFlashKey((k) => k + 1);
+    const bandObj = model.bands.find((b) => b.id === bandId);
+    if (bandObj?.problemZone?.linkedIssueId && onSelectFlaggedIssue) {
+      onSelectFlaggedIssue(bandObj.problemZone.linkedIssueId);
+    }
   };
-
-  const bandWidth = plotW / bands.length;
-  const bandCenterX = (idx: number) => padLeft + bandWidth * (idx + 0.5);
-
-  const gridLines = isAdvanced
-    ? [-6, -12, -18, -24, -30, -36, -42, -48]
-    : [-12, -24, -36, -48];
-
-  const envelopeTopPts = bands.map((b, i) => ({
-    x: bandCenterX(i),
-    y: dbToY(b.targetMaxDbfs),
-  }));
-  const envelopeBotPts = bands.map((b, i) => ({
-    x: bandCenterX(i),
-    y: dbToY(b.targetMinDbfs),
-  }));
-  const envelopePath = buildEnvelopePolygon(envelopeTopPts, envelopeBotPts);
-
-  const measuredPts = bands
-    .map((b, i) =>
-      b.measuredDbfs !== null
-        ? { x: bandCenterX(i), y: dbToY(b.measuredDbfs), band: b, index: i }
-        : null
-    )
-    .filter((p): p is { x: number; y: number; band: SpectralBandDatum; index: number } => p !== null);
-
-  const measuredCurvePath = buildSmoothPath(measuredPts.map((p) => ({ x: p.x, y: p.y })));
-
-  const referencePts = bands
-    .map((b, i) =>
-      b.referenceDbfs !== null
-        ? { x: bandCenterX(i), y: dbToY(b.referenceDbfs) }
-        : null
-    )
-    .filter((p): p is { x: number; y: number } => p !== null);
-
-  const referenceCurvePath =
-    referencePts.length >= 2 ? buildSmoothPath(referencePts) : '';
-
-  const flaggedCount = bands.filter((b) => b.flaggedByActionPlan).length;
 
   return (
     <section
-      aria-label="Spectral Tonal Balance Graph"
+      ref={containerRef}
+      aria-label="Spectral Tonal Balance Analyzer"
       data-testid={isAdvanced ? 'advanced-spectral-graph' : 'simple-spectral-graph'}
-      className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-5 md:p-6 space-y-4"
+      className="studio-elevated squircle-outer p-5 md:p-6 space-y-4"
     >
-      {/* Header Row */}
-      <div className="flex flex-wrap items-start justify-between gap-3 pb-3.5 border-b border-zinc-200/80 dark:border-zinc-800">
+      {/* Header & Daylight Studio Legend */}
+      <div className="flex flex-wrap items-start justify-between gap-3 pb-4 studio-hairline-b">
         <div>
-          <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+          <div className="text-[11px] font-mono text-[var(--accent-primary)] font-medium">
+            6-Band Spectral Tonal Balance · 48-Bin FFT
+          </div>
+          <h2 className="text-base font-bold text-[var(--text-primary)] mt-0.5">
             {isAdvanced
-              ? '6-Band Tonal Balance vs. Genre Target Envelope'
-              : 'Spectral Tonal Balance'}
+              ? 'Frequency Problem-Zone Spectrum vs. Genre Target Envelope'
+              : 'Spectral Tonal Balance & Flagged Frequency Zones'}
           </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Measured frequency distribution in dBFS compared against the{' '}
-            <span className="font-medium text-zinc-800 dark:text-zinc-200">
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            Hover or click any frequency band to inspect exact Hz levels against{' '}
+            <span className="font-medium text-[var(--text-primary)]">
               {GENRE_LABELS[genre]}
             </span>{' '}
-            ({MIX_STAGE_LABELS[mixStage].title}) envelope.
+            ({MIX_STAGE_LABELS[mixStage].title}).
           </p>
         </div>
 
-        {/* Clean Unboxed Legend */}
-        <div className="flex flex-wrap items-center gap-4 text-[11px] text-zinc-600 dark:text-zinc-400">
+        <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-[var(--text-secondary)]">
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-0.5 bg-[#3A7269] dark:bg-teal-400 rounded-full" />
-            <span>Measured Mix</span>
+            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--accent-primary)] inline-block" />
+            <span>Your Mix</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-2.5 rounded-xs bg-[#3A7269]/15 dark:bg-teal-400/20 border border-[#3A7269]/35 dark:border-teal-400/40" />
-            <span>Genre Target</span>
+            <span className="w-3 h-2.5 rounded-[3px] bg-[var(--accent-soft)] border border-[var(--border-active-color)] inline-block" />
+            <span>Target Envelope</span>
           </span>
-          {referenceCurvePath && (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-0.5 border-t-2 border-dashed border-indigo-500 dark:border-indigo-400" />
-              <span className="truncate max-w-[140px]">
+          <span className="inline-flex items-center gap-1.5 text-[var(--status-caution)] font-medium">
+            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--status-caution)] inline-block" />
+            <span>Warning</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-[var(--status-alert)] font-medium">
+            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--status-alert)] inline-block" />
+            <span>Critical</span>
+          </span>
+          {hasRefB && (
+            <span className="inline-flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+              <span className="w-3.5 border-t-2 border-dashed border-current inline-block" />
+              <span className="truncate max-w-[120px]">
                 Ref B{referenceFileName ? ` (${referenceFileName})` : ''}
               </span>
             </span>
           )}
-          {flaggedCount > 0 && (
-            <span className="inline-flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-medium">
-              <span className="w-2 h-2 rounded-full bg-amber-500" />
-              <span>Action Plan Flag ({flaggedCount})</span>
-            </span>
-          )}
         </div>
       </div>
 
-      {/* Live Hover / Focus Telemetry Readout Strip */}
-      {activeBand && (
-        <div
-          data-testid="spectral-band-readout"
-          className="flex flex-wrap items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg bg-[#FAFAFA] dark:bg-zinc-950/70 border border-zinc-200/80 dark:border-zinc-800 text-xs"
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-              {activeBand.label}
-            </span>
-            <span className="font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
-              {activeBand.rangeLabel}
-            </span>
-            {activeBand.flaggedByActionPlan && (
-              <>
-                <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-700">·</span>
-                <span
-                  className={`font-medium ${
-                    activeBand.flagSeverity === 'critical'
-                      ? 'text-rose-700 dark:text-rose-400'
-                      : 'text-amber-700 dark:text-amber-400'
-                  }`}
-                >
-                  Flagged: {activeBand.flagReason}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums">
-            <span>
-              <span className="text-zinc-500 dark:text-zinc-400 mr-1.5">Measured:</span>
-              <strong className="text-zinc-900 dark:text-zinc-100">
-                {activeBand.measuredDbfs !== null
-                  ? `${activeBand.measuredDbfs.toFixed(1)} dBFS`
-                  : 'N/A'}
-              </strong>
-            </span>
-            <span>
-              <span className="text-zinc-500 dark:text-zinc-400 mr-1.5">Target:</span>
-              <span className="text-zinc-700 dark:text-zinc-300">
-                {activeBand.targetMinDbfs.toFixed(1)} to {activeBand.targetMaxDbfs.toFixed(1)} dBFS
-              </span>
-            </span>
-            <span>
-              <span className="text-zinc-500 dark:text-zinc-400 mr-1.5">Delta:</span>
-              <strong
-                className={
-                  activeBand.deltaFromTargetDb === null
-                    ? 'text-zinc-400'
-                    : activeBand.status === 'in_target'
-                    ? 'text-[#3A7269] dark:text-teal-400'
-                    : activeBand.flaggedByActionPlan && activeBand.flagSeverity === 'critical'
-                    ? 'text-rose-700 dark:text-rose-400'
-                    : 'text-amber-700 dark:text-amber-400'
-                }
-              >
-                {activeBand.deltaFromTargetDb !== null
-                  ? `${activeBand.deltaFromTargetDb >= 0 ? '+' : ''}${activeBand.deltaFromTargetDb.toFixed(1)} dB`
-                  : '—'}
-              </strong>
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Responsive SVG Plot with Interactive Keyboard/Pointer Columns */}
-      <div className="relative w-full overflow-x-auto">
-        <svg
-          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
-          className="w-full h-auto min-w-[540px] select-none"
-          role="img"
-          aria-label={`6-band spectral tonal balance chart for ${GENRE_LABELS[genre]} ${MIX_STAGE_LABELS[mixStage].title}`}
-        >
-          <defs>
-            <linearGradient id={`barGrad-${variant}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3A7269" stopOpacity="0.28" />
-              <stop offset="100%" stopColor="#3A7269" stopOpacity="0.03" />
-            </linearGradient>
-            <linearGradient id={`flagBarGrad-${variant}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#D97706" stopOpacity="0.30" />
-              <stop offset="100%" stopColor="#D97706" stopOpacity="0.04" />
-            </linearGradient>
-            <linearGradient id={`critBarGrad-${variant}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#E11D48" stopOpacity="0.30" />
-              <stop offset="100%" stopColor="#E11D48" stopOpacity="0.04" />
-            </linearGradient>
-          </defs>
-
-          {/* Plot Canvas Surface */}
-          <rect
-            x={padLeft}
-            y={padTop}
-            width={plotW}
-            height={plotH}
-            rx={6}
-            className="fill-[#FAFAFA] dark:fill-zinc-950/80 stroke-zinc-200 dark:stroke-zinc-800"
-            strokeWidth={1}
-          />
-
-          {/* Horizontal dBFS Gridlines */}
-          {gridLines.map((db) => {
-            const y = dbToY(db);
-            return (
-              <g key={db}>
-                <line
-                  x1={padLeft}
-                  x2={padLeft + plotW}
-                  y1={y}
-                  y2={y}
-                  className="stroke-zinc-200/80 dark:stroke-zinc-800/90"
-                  strokeWidth={1}
-                  strokeDasharray={isAdvanced && db % 12 !== 0 ? '2 4' : undefined}
-                />
-                <text
-                  x={padLeft - 8}
-                  y={y + 3.5}
-                  textAnchor="end"
-                  className="fill-zinc-400 dark:fill-zinc-500 text-[10px] font-mono tabular-nums"
-                >
-                  {db}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Y-Axis Unit Label */}
-          <text
-            x={padLeft - 8}
-            y={padTop - 8}
-            textAnchor="end"
-            className="fill-zinc-400 dark:fill-zinc-500 text-[9.5px] font-mono"
-          >
-            dBFS
-          </text>
-
-          {/* Vertical Band Separators & Hover Column Highlight */}
-          {bands.map((band, idx) => {
-            const colX = padLeft + idx * bandWidth;
-            const isHovered = activeIdx === idx;
-            return (
-              <g key={`col-${band.id}`}>
-                {isHovered && (
-                  <rect
-                    x={colX + 2}
-                    y={padTop + 1}
-                    width={bandWidth - 4}
-                    height={plotH - 2}
-                    rx={4}
-                    className="fill-[#3A7269]/[0.06] dark:fill-teal-400/[0.08]"
-                  />
-                )}
-                {idx > 0 && (
-                  <line
-                    x1={colX}
-                    x2={colX}
-                    y1={padTop}
-                    y2={padTop + plotH}
-                    className="stroke-zinc-200/50 dark:stroke-zinc-800/60"
-                    strokeWidth={1}
-                  />
-                )}
-              </g>
-            );
-          })}
-
-          {/* Soft Shaded Genre Target Envelope */}
-          {envelopePath && (
-            <path
-              d={envelopePath}
-              className="fill-[#3A7269]/[0.13] dark:fill-teal-400/[0.14] stroke-[#3A7269]/35 dark:stroke-teal-400/35"
-              strokeWidth={1}
-            />
-          )}
-
-          {/* Subtle Vertical Measured Bars */}
-          {bands.map((band, idx) => {
-            if (band.measuredDbfs === null) return null;
-            const cx = bandCenterX(idx);
-            const barW = Math.min(34, bandWidth * 0.32);
-            const topY = dbToY(band.measuredDbfs);
-            const bottomY = padTop + plotH;
-            const barH = Math.max(2, bottomY - topY);
-
-            const fillUrl = band.flaggedByActionPlan
-              ? band.flagSeverity === 'critical'
-                ? `url(#critBarGrad-${variant})`
-                : `url(#flagBarGrad-${variant})`
-              : `url(#barGrad-${variant})`;
-
-            return (
-              <rect
-                key={`bar-${band.id}`}
-                x={cx - barW / 2}
-                y={topY}
-                width={barW}
-                height={barH}
-                rx={3}
-                fill={fillUrl}
-              />
-            );
-          })}
-
-          {/* Optional Reference Track B Dashed Curve */}
-          {referenceCurvePath && (
-            <path
-              d={referenceCurvePath}
-              fill="none"
-              className="stroke-indigo-500/80 dark:stroke-indigo-400/80"
-              strokeWidth={1.75}
-              strokeDasharray="5 4"
-            />
-          )}
-
-          {/* Smooth Measured Tonal Curve */}
-          {measuredCurvePath && (
-            <path
-              d={measuredCurvePath}
-              fill="none"
-              className="stroke-[#3A7269] dark:stroke-teal-400"
-              strokeWidth={2.25}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
-
-          {/* Data Nodes + Action Plan Flag Indicators */}
-          {bands.map((band, idx) => {
-            const cx = bandCenterX(idx);
-            const isSelected = activeIdx === idx;
-            const hasVal = band.measuredDbfs !== null;
-            const cy = hasVal ? dbToY(band.measuredDbfs!) : padTop + plotH - 8;
-
-            const isCrit = band.flaggedByActionPlan && band.flagSeverity === 'critical';
-            const isFlag = band.flaggedByActionPlan;
-
-            return (
-              <g key={`node-${band.id}`}>
-                {hasVal && (
-                  <>
-                    {isFlag && (
-                      <circle
-                        cx={cx}
-                        cy={cy}
-                        r={isSelected ? 10 : 8}
-                        className={
-                          isCrit
-                            ? 'fill-rose-500/18 dark:fill-rose-400/20'
-                            : 'fill-amber-500/20 dark:fill-amber-400/20'
-                        }
-                      />
-                    )}
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={isSelected ? 5.2 : 4.2}
-                      className={
-                        isCrit
-                          ? 'fill-rose-600 dark:fill-rose-400 stroke-white dark:stroke-zinc-900'
-                          : isFlag
-                          ? 'fill-amber-500 dark:fill-amber-400 stroke-white dark:stroke-zinc-900'
-                          : 'fill-[#3A7269] dark:fill-teal-400 stroke-white dark:stroke-zinc-900'
-                      }
-                      strokeWidth={2}
-                    />
-
-                    {/* Flagged Band Label Above Node */}
-                    {isFlag && (
-                      <text
-                        x={cx}
-                        y={Math.max(padTop + 13, cy - 12)}
-                        textAnchor="middle"
-                        className={`text-[10px] font-mono font-semibold ${
-                          isCrit
-                            ? 'fill-rose-700 dark:fill-rose-400'
-                            : 'fill-amber-700 dark:fill-amber-400'
-                        }`}
-                      >
-                        {band.deltaFromTargetDb !== null
-                          ? `${band.deltaFromTargetDb >= 0 ? '+' : ''}${band.deltaFromTargetDb.toFixed(1)} dB`
-                          : 'Check'}
-                      </text>
-                    )}
-                  </>
-                )}
-
-                {/* X-Axis Band Name & Hz Range */}
-                <text
-                  x={cx}
-                  y={padTop + plotH + 18}
-                  textAnchor="middle"
-                  className={`text-[11px] font-semibold ${
-                    isSelected
-                      ? 'fill-zinc-900 dark:fill-zinc-100'
-                      : 'fill-zinc-700 dark:fill-zinc-300'
-                  }`}
-                >
-                  {band.label}
-                </text>
-                <text
-                  x={cx}
-                  y={padTop + plotH + 33}
-                  textAnchor="middle"
-                  className="fill-zinc-500 dark:fill-zinc-400 text-[10px] font-mono tabular-nums"
-                >
-                  {band.rangeLabel}
-                </text>
-
-                {/* Accessible Interactive Hit Column */}
-                <rect
-                  x={padLeft + idx * bandWidth}
-                  y={padTop}
-                  width={bandWidth}
-                  height={plotH + padBottom}
-                  fill="transparent"
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`${band.label} (${band.rangeLabel}): ${
-                    band.measuredDbfs !== null
-                      ? `${band.measuredDbfs.toFixed(1)} dBFS, delta ${
-                          band.deltaFromTargetDb !== null
-                            ? `${band.deltaFromTargetDb >= 0 ? '+' : ''}${band.deltaFromTargetDb.toFixed(1)} dB`
-                            : 'N/A'
-                        } vs genre target`
-                      : 'Unavailable'
-                  }`}
-                  className="cursor-pointer focus:outline-none"
-                  onMouseEnter={() => setHoveredIdx(idx)}
-                  onMouseLeave={() => setHoveredIdx(null)}
-                  onFocus={() => setHoveredIdx(idx)}
-                  onClick={() => {
-                    setHoveredIdx(idx);
-                    if (band.linkedIssueId && onSelectFlaggedIssue) {
-                      onSelectFlaggedIssue(band.linkedIssueId);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setHoveredIdx(idx);
-                      if (band.linkedIssueId && onSelectFlaggedIssue) {
-                        onSelectFlaggedIssue(band.linkedIssueId);
-                      }
-                    }
-                  }}
-                />
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      {/* Advanced Mode Compact Band Delta Strip */}
-      {isAdvanced && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-1">
-          {bands.map((band, idx) => {
-            const isSelected = activeIdx === idx;
-            return (
-              <button
-                key={band.id}
-                type="button"
-                onMouseEnter={() => setHoveredIdx(idx)}
-                onFocus={() => setHoveredIdx(idx)}
-                onClick={() => {
-                  setHoveredIdx(idx);
-                  if (band.linkedIssueId && onSelectFlaggedIssue) {
-                    onSelectFlaggedIssue(band.linkedIssueId);
-                  }
+      {/* Daylight Studio Spectral Stage */}
+      <div
+        data-testid="retro-spectrum-crt"
+        className="relative squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)] p-3.5 md:p-4 space-y-3"
+      >
+        {/* Top Diagnostic Summary Row & Interactive Callout Card */}
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-[var(--text-secondary)]">
+            <div className="flex items-center gap-2">
+              <span
+                className="inline-block w-2 h-2 rounded-full"
+                style={{
+                  backgroundColor:
+                    model.problemZones.length > 0
+                      ? 'var(--status-alert)'
+                      : 'var(--status-safe)',
                 }}
-                className={`text-left px-2.5 py-2 rounded-lg border transition-colors ${
-                  isSelected
-                    ? 'border-[#3A7269] dark:border-teal-500 bg-[#3A7269]/[0.05] dark:bg-teal-950/30'
-                    : 'border-zinc-200 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/50 hover:border-zinc-300 dark:hover:border-zinc-700'
+              />
+              <span className="font-semibold text-[var(--text-primary)]">
+                {model.problemZones.length > 0
+                  ? `${model.problemZones.length} Flagged Frequency Zone${model.problemZones.length > 1 ? 's' : ''} Detected`
+                  : 'All 6 Frequency Bands Within Genre Target Envelope'}
+              </span>
+            </div>
+            <span className="tabular-nums">
+              {activeBand.label} ({activeBand.axisRange}) ·{' '}
+              <strong className="text-[var(--text-primary)]">
+                {activeBand.measuredDbfs.toFixed(1)} dBFS
+              </strong>
+            </span>
+          </div>
+
+          {/* Interactive Band Diagnostic Callout */}
+          <div className="min-h-[72px] flex items-end">
+            {activeZone ? (
+              <div
+                data-testid="retro-rpg-tooltip"
+                className={`w-full px-4 py-3 squircle-inner bg-[var(--bg-elevated)] border transition-all duration-150 ${
+                  activeZone.severity === 'critical'
+                    ? 'border-[var(--status-alert)]/45'
+                    : 'border-[var(--status-caution)]/45'
                 }`}
               >
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                    {band.shortLabel}
-                  </span>
-                  {band.flaggedByActionPlan && (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                     <span
-                      className={`w-2 h-2 rounded-full ${
-                        band.flagSeverity === 'critical' ? 'bg-rose-500' : 'bg-amber-500'
+                      className={`inline-flex items-center justify-center w-5 h-5 rounded-md font-mono text-xs font-bold text-white ${
+                        activeZone.severity === 'critical'
+                          ? 'bg-[var(--status-alert)]'
+                          : 'bg-[var(--status-caution)]'
                       }`}
-                      title={band.flagReason || 'Flagged band'}
+                    >
+                      !
+                    </span>
+                    <span
+                      data-testid="retro-rpg-tooltip-headline"
+                      className={`text-xs font-semibold ${
+                        activeZone.severity === 'critical'
+                          ? 'text-[var(--status-alert)]'
+                          : 'text-[var(--status-caution)]'
+                      }`}
+                    >
+                      {activeZone.headline}
+                    </span>
+                  </div>
+                  <span className="font-mono text-[11px] tabular-nums text-[var(--text-secondary)]">
+                    {activeZone.measuredDbfs > activeZone.targetMaxDbfs
+                      ? `Avg ${activeZone.measuredDbfs.toFixed(1)} / Target ${activeZone.targetMaxDbfs.toFixed(1)} dBFS`
+                      : `Peak ${activeZone.peakDbfs.toFixed(1)} / Target ${activeZone.targetMaxDbfs.toFixed(1)} dBFS`}
+                  </span>
+                </div>
+
+                <p
+                  data-testid="retro-rpg-tooltip-tip"
+                  className="mt-1.5 text-xs text-[var(--text-primary)] leading-relaxed"
+                >
+                  {activeZone.actionableTip}
+                </p>
+              </div>
+            ) : (
+              <div
+                data-testid="retro-rpg-tooltip"
+                className="w-full px-4 py-3 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-active-color)]"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span
+                    data-testid="retro-rpg-tooltip-headline"
+                    className="text-xs font-semibold text-[var(--accent-primary)]"
+                  >
+                    {activeBand.axisRange}: {activeBand.label} — Within Target
+                  </span>
+                  <span className="font-mono text-[11px] tabular-nums text-[var(--text-secondary)]">
+                    {activeBand.measuredDbfs.toFixed(1)} dBFS (Target {activeBand.targetMinDbfs.toFixed(1)} to {activeBand.targetMaxDbfs.toFixed(1)})
+                  </span>
+                </div>
+                <p
+                  data-testid="retro-rpg-tooltip-tip"
+                  className="mt-1 text-xs text-[var(--text-secondary)] leading-relaxed"
+                >
+                  This band sits cleanly inside your genre target envelope. Click any amber or crimson zone to inspect flagged EQ issues.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Daylight Studio SVG Plot Stage */}
+        <div className="w-full overflow-x-auto squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)] p-2">
+          <svg
+            viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+            className="w-full h-auto min-w-[560px] select-none"
+            role="img"
+            aria-label={`Spectral tonal balance graph for ${GENRE_LABELS[genre]} ${MIX_STAGE_LABELS[mixStage].title}`}
+          >
+            {/* Clean Daylight Plot Backplate */}
+            <rect
+              x={padLeft}
+              y={padTop}
+              width={plotW}
+              height={plotH}
+              rx={6}
+              fill="var(--bg-elevated)"
+              stroke="var(--border-hairline-color)"
+              strokeWidth={1}
+            />
+
+            {/* Soft #EBF3F1 Genre Target Envelope Polygon */}
+            <polygon
+              points={targetEnvelopePolygon}
+              fill="var(--accent-soft)"
+              fillOpacity={0.95}
+            />
+
+            {/* Horizontal dBFS Hairline Gridlines */}
+            {gridLines.map((db) => {
+              const y = dbToY(db);
+              return (
+                <g key={db}>
+                  <line
+                    x1={padLeft}
+                    x2={padLeft + plotW}
+                    y1={y}
+                    y2={y}
+                    stroke="var(--border-hairline-color)"
+                    strokeWidth={1}
+                    strokeDasharray={db % 12 === 0 ? undefined : '2 4'}
+                  />
+                  <text
+                    x={padLeft - 8}
+                    y={y + 3.5}
+                    textAnchor="end"
+                    fill="var(--text-secondary)"
+                    className="text-[10px] font-mono tabular-nums"
+                  >
+                    {db}
+                  </text>
+                </g>
+              );
+            })}
+
+            <text
+              x={padLeft - 8}
+              y={padTop - 10}
+              textAnchor="end"
+              fill="var(--text-secondary)"
+              className="text-[9.5px] font-mono"
+            >
+              dBFS
+            </text>
+
+            {/* Vertical Band Dividers & Flagged Problem Frequency Zone Overlays */}
+            {model.bands.map((band, idx) => {
+              const colX = padLeft + idx * bandW;
+              const zone = band.problemZone;
+              const isSelected = activeBand.id === band.id;
+              const isFlashing = flashingBandId === band.id;
+
+              const overlayColor =
+                zone?.severity === 'critical'
+                  ? 'var(--status-alert)'
+                  : zone?.severity === 'warning'
+                  ? 'var(--status-caution)'
+                  : 'var(--accent-primary)';
+
+              return (
+                <g key={`band-bg-${band.id}`}>
+                  {/* Subtle hover/selection highlight for balanced band */}
+                  {!zone && isSelected && (
+                    <rect
+                      x={colX + 1}
+                      y={padTop + 1}
+                      width={bandW - 2}
+                      height={plotH - 2}
+                      fill="var(--accent-primary)"
+                      fillOpacity={0.05}
                     />
                   )}
-                </div>
-                <div className="font-mono tabular-nums text-xs font-bold text-zinc-900 dark:text-zinc-100 mt-0.5">
-                  {band.measuredDbfs !== null ? `${band.measuredDbfs.toFixed(1)}` : '—'}{' '}
-                  <span className="text-[10px] font-normal text-zinc-500">dBFS</span>
-                </div>
-                <div className="font-mono tabular-nums text-[10px] text-zinc-500 dark:text-zinc-400">
-                  {band.deltaFromTargetDb !== null
-                    ? `${band.deltaFromTargetDb >= 0 ? '+' : ''}${band.deltaFromTargetDb.toFixed(1)} dB vs tgt`
-                    : 'No reading'}
-                </div>
-              </button>
-            );
-          })}
+
+                  {/* Flagged Warning (#B45309) or Critical (#BE123C) Zone Overlay */}
+                  {zone && (
+                    <g data-testid={`problem-zone-${band.id}`}>
+                      <rect
+                        key={isFlashing ? `flash-${band.id}-${activeFlashKey}` : `pulse-${band.id}`}
+                        x={colX + 1}
+                        y={padTop + 1}
+                        width={bandW - 2}
+                        height={plotH - 2}
+                        fill={overlayColor}
+                        className={
+                          isFlashing
+                            ? 'animate-retro-zone-flash'
+                            : 'animate-retro-zone-pulse'
+                        }
+                      />
+                      <rect
+                        x={colX + 1.5}
+                        y={padTop + 1.5}
+                        width={bandW - 3}
+                        height={plotH - 3}
+                        fill="none"
+                        stroke={overlayColor}
+                        strokeWidth={isSelected || isFlashing ? 1.5 : 1}
+                        strokeDasharray={isSelected || isFlashing ? undefined : '4 3'}
+                        strokeOpacity={isSelected || isFlashing ? 0.75 : 0.4}
+                      />
+                    </g>
+                  )}
+
+                  {/* Band Separator */}
+                  {idx > 0 && (
+                    <line
+                      x1={colX}
+                      x2={colX}
+                      y1={padTop}
+                      y2={padTop + plotH}
+                      stroke="var(--border-hairline-color)"
+                      strokeWidth={1}
+                    />
+                  )}
+                </g>
+              );
+            })}
+
+            {/* 48 Precision Daylight Spectral Bars */}
+            {model.bars.map((bar) => {
+              const bandObj = model.bands.find((b) => b.id === bar.bandId)!;
+              const zone = bandObj.problemZone;
+              const isSelectedBand = activeBand.id === bar.bandId;
+              const yTop = dbToY(bar.dbfs);
+              const barH = Math.max(2, padTop + plotH - yTop);
+              const x = padLeft + bar.index * barSlotW + (barSlotW - barW) / 2;
+
+              const barFill =
+                zone?.severity === 'critical'
+                  ? 'var(--status-alert)'
+                  : zone?.severity === 'warning'
+                  ? 'var(--status-caution)'
+                  : 'var(--accent-primary)';
+
+              return (
+                <g
+                  key={`bar-${bar.index}`}
+                  data-testid={`spectrum-bar-${bar.index}`}
+                  data-problem-state={zone ? zone.severity : 'normal'}
+                >
+                  <rect
+                    x={x}
+                    y={yTop}
+                    width={barW}
+                    height={barH}
+                    rx={2}
+                    fill={barFill}
+                    fillOpacity={zone ? (isSelectedBand ? 0.85 : 0.68) : isSelectedBand ? 0.52 : 0.34}
+                  />
+                </g>
+              );
+            })}
+
+            {/* Target Envelope Upper Boundary Dashed Curve */}
+            <polyline
+              points={targetPolylinePoints}
+              fill="none"
+              stroke="var(--accent-primary)"
+              strokeWidth={1.25}
+              strokeDasharray="4 3"
+              strokeOpacity={0.55}
+            />
+
+            {/* Primary #3A7269 Measured Spectral Tonal Curve */}
+            <polyline
+              points={measuredCurvePoints}
+              fill="none"
+              stroke="var(--accent-primary)"
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+
+            {/* Optional Reference B Dashed Curve */}
+            {refBPolylinePoints && (
+              <polyline
+                points={refBPolylinePoints}
+                fill="none"
+                stroke="#6366F1"
+                strokeWidth={1.75}
+                strokeDasharray="4 3"
+                strokeOpacity={0.9}
+              />
+            )}
+
+            {/* Flagged Band Markers above each Problem Zone Peak */}
+            {model.problemZones.map((zone) => {
+              const peakX = padLeft + (zone.peakBarIndex + 0.5) * barSlotW;
+              const peakY = dbToY(zone.peakDbfs);
+              const markerY = Math.max(padTop + 16, peakY - 14);
+              const color =
+                zone.severity === 'critical' ? 'var(--status-alert)' : 'var(--status-caution)';
+
+              return (
+                <g
+                  key={`marker-${zone.zoneId}`}
+                  data-testid={`pixel-warning-marker-${zone.bandId}`}
+                  className="pointer-events-none"
+                >
+                  <g className="animate-retro-marker-bounce">
+                    <rect
+                      x={peakX - 8}
+                      y={markerY - 9}
+                      width={16}
+                      height={16}
+                      rx={5}
+                      fill={color}
+                    />
+                    <text
+                      x={peakX}
+                      y={markerY + 3}
+                      textAnchor="middle"
+                      fill="#FFFFFF"
+                      className="font-mono text-[11px] font-bold"
+                    >
+                      !
+                    </text>
+                  </g>
+                  <line
+                    x1={peakX}
+                    y1={markerY + 8}
+                    x2={peakX}
+                    y2={Math.max(markerY + 10, peakY - 2)}
+                    stroke={color}
+                    strokeWidth={1.25}
+                    strokeDasharray="2 2"
+                  />
+                </g>
+              );
+            })}
+
+            {/* X-Axis Frequency Band Labels & Interactive Hit Columns */}
+            {model.bands.map((band, idx) => {
+              const colX = padLeft + idx * bandW;
+              const cx = colX + bandW / 2;
+              const zone = band.problemZone;
+              const isSelected = activeBand.id === band.id;
+
+              const labelFill =
+                zone?.severity === 'critical'
+                  ? 'var(--status-alert)'
+                  : zone?.severity === 'warning'
+                  ? 'var(--status-caution)'
+                  : isSelected
+                  ? 'var(--accent-primary)'
+                  : 'var(--text-primary)';
+
+              return (
+                <g key={`axis-${band.id}`}>
+                  <text
+                    x={cx}
+                    y={padTop + plotH + 20}
+                    textAnchor="middle"
+                    fill={labelFill}
+                    className="text-[12px] font-semibold"
+                  >
+                    {band.label}
+                  </text>
+                  <text
+                    x={cx}
+                    y={padTop + plotH + 36}
+                    textAnchor="middle"
+                    fill="var(--text-secondary)"
+                    className="text-[10px] font-mono tabular-nums"
+                  >
+                    {band.axisRange}
+                  </text>
+
+                  {/* Interactive Hover & Click Hit Column */}
+                  <rect
+                    x={colX}
+                    y={padTop}
+                    width={bandW}
+                    height={plotH + padBottom}
+                    fill="transparent"
+                    role="button"
+                    tabIndex={0}
+                    data-testid={`spectrum-zone-trigger-${band.id}`}
+                    aria-label={
+                      zone
+                        ? `${band.label} (${band.axisRange}): ${zone.headline}. ${zone.actionableTip}`
+                        : `${band.label} (${band.axisRange}): ${band.measuredDbfs.toFixed(1)} dBFS, within target`
+                    }
+                    className="cursor-pointer focus:outline-none"
+                    onMouseEnter={() => setHoveredBandId(band.id)}
+                    onMouseLeave={() => setHoveredBandId(null)}
+                    onFocus={() => setHoveredBandId(band.id)}
+                    onBlur={() => setHoveredBandId(null)}
+                    onClick={() => handleSelectBand(band.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleSelectBand(band.id);
+                      }
+                    }}
+                  />
+                </g>
+              );
+            })}
+          </svg>
         </div>
-      )}
+      </div>
+
+      {/* Interactive 6-Band Telemetry Selector Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+        {model.bands.map((band) => {
+          const zone = band.problemZone;
+          const isSelected = activeBand.id === band.id;
+          const isCrit = zone?.severity === 'critical';
+          const isWarn = zone?.severity === 'warning';
+
+          return (
+            <motion.button
+              key={band.id}
+              type="button"
+              whileTap={TACTILE_TAP}
+              data-testid={`band-chip-${band.id}`}
+              onMouseEnter={() => setHoveredBandId(band.id)}
+              onMouseLeave={() => setHoveredBandId(null)}
+              onClick={() => handleSelectBand(band.id)}
+              className={`text-left px-3 py-2.5 squircle-inner border transition-colors cursor-pointer ${
+                isSelected
+                  ? isCrit
+                    ? 'border-[var(--status-alert)] bg-rose-50/70 dark:bg-rose-950/30'
+                    : isWarn
+                    ? 'border-[var(--status-caution)] bg-amber-50/70 dark:bg-amber-950/30'
+                    : 'border-[var(--accent-primary)] bg-[var(--accent-soft)]'
+                  : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
+              }`}
+            >
+              <div className="flex items-center justify-between gap-1 text-[11px]">
+                <span className="font-semibold text-[var(--text-primary)]">
+                  {band.label}
+                </span>
+                {zone && (
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.2 rounded text-white ${
+                      isCrit ? 'bg-[var(--status-alert)]' : 'bg-[var(--status-caution)]'
+                    }`}
+                  >
+                    !
+                  </span>
+                )}
+              </div>
+              <div className="font-mono tabular-nums text-[10px] text-[var(--text-secondary)]">
+                {band.axisRange}
+              </div>
+              <div className="font-mono tabular-nums text-xs font-bold text-[var(--text-primary)] mt-1 flex items-baseline justify-between gap-1">
+                <span>{band.measuredDbfs.toFixed(1)} dB</span>
+                {zone ? (
+                  <span
+                    className={`text-[10px] font-semibold ${
+                      isCrit ? 'text-[var(--status-alert)]' : 'text-[var(--status-caution)]'
+                    }`}
+                  >
+                    +{zone.deltaDb.toFixed(1)}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-[var(--status-safe)] font-medium">
+                    OK
+                  </span>
+                )}
+              </div>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      <span className="sr-only">
+        Rendered {model.bands.length * BARS_PER_BAND} frequency bins across 6 studio bands.
+      </span>
     </section>
   );
 };

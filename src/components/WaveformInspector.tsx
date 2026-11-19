@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef } from 'react';
+import { motion } from 'motion/react';
 import { AnalysisIssue, TimelineSeries } from '../contracts/analysisContract';
 import { useStudioAudioEngine, useStudioAudioState } from '../audio/StudioAudioContext';
+import { STUDIO_SPRING, TACTILE_TAP } from '../lib/motion';
 import {
   Play,
   Pause,
@@ -167,13 +169,13 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // 1. Canvas Background
-      ctx.fillStyle = isDark ? '#0B0F0E' : '#FAFAFA';
+      // 1. Canvas Background (Daylight Studio tokens)
+      ctx.fillStyle = isDark ? '#0D1211' : '#FAFAFA';
       ctx.fillRect(0, 0, cssW, cssH);
 
-      // 2. Subtle Horizontal Centerline & Quarter Guides
+      // 2. Subtle Horizontal Centerline
       const midY = cssH / 2;
-      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(24,24,27,0.07)';
+      ctx.strokeStyle = isDark ? 'rgba(242,245,244,0.08)' : 'rgba(24,34,32,0.08)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, midY);
@@ -190,19 +192,19 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
         if (isSelected) {
           ctx.fillStyle = isTechnical
             ? isDark
-              ? 'rgba(244, 63, 94, 0.22)'
-              : 'rgba(225, 29, 72, 0.14)'
+              ? 'rgba(251, 113, 133, 0.22)'
+              : 'rgba(190, 18, 60, 0.14)'
             : isDark
-            ? 'rgba(245, 158, 11, 0.22)'
-            : 'rgba(217, 119, 6, 0.14)';
+            ? 'rgba(251, 191, 36, 0.22)'
+            : 'rgba(180, 83, 9, 0.14)';
         } else {
           ctx.fillStyle = isTechnical
             ? isDark
-              ? 'rgba(244, 63, 94, 0.08)'
-              : 'rgba(225, 29, 72, 0.06)'
+              ? 'rgba(251, 113, 133, 0.08)'
+              : 'rgba(190, 18, 60, 0.06)'
             : isDark
-            ? 'rgba(245, 158, 11, 0.08)'
-            : 'rgba(217, 119, 6, 0.06)';
+            ? 'rgba(251, 191, 36, 0.08)'
+            : 'rgba(180, 83, 9, 0.06)';
         }
         ctx.fillRect(x0, 0, x1 - x0, cssH);
       }
@@ -211,9 +213,9 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       if (isLooping && loopRegion) {
         const lx0 = (loopRegion.startSec / dur) * cssW;
         const lx1 = Math.max(lx0 + 6, (loopRegion.endSec / dur) * cssW);
-        ctx.fillStyle = isDark ? 'rgba(45, 212, 191, 0.12)' : 'rgba(58, 114, 105, 0.12)';
+        ctx.fillStyle = isDark ? 'rgba(77, 165, 151, 0.14)' : 'rgba(58, 114, 105, 0.12)';
         ctx.fillRect(lx0, 0, lx1 - lx0, cssH);
-        ctx.strokeStyle = isDark ? '#2DD4BF' : '#3A7269';
+        ctx.strokeStyle = isDark ? '#4DA597' : '#3A7269';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(lx0, 0);
@@ -240,11 +242,11 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
           // Peak Outer Bar
           if (b.clipped) {
-            ctx.fillStyle = isDark ? '#FB7185' : '#E11D48';
+            ctx.fillStyle = isDark ? '#FB7185' : '#BE123C';
           } else if (isPlayed) {
-            ctx.fillStyle = isDark ? 'rgba(69, 155, 141, 0.65)' : 'rgba(58, 114, 105, 0.45)';
+            ctx.fillStyle = isDark ? 'rgba(77, 165, 151, 0.65)' : 'rgba(58, 114, 105, 0.42)';
           } else {
-            ctx.fillStyle = isDark ? 'rgba(113, 125, 121, 0.45)' : 'rgba(161, 161, 170, 0.45)';
+            ctx.fillStyle = isDark ? 'rgba(155, 168, 164, 0.38)' : 'rgba(82, 96, 93, 0.28)';
           }
           ctx.fillRect(x, midY - peakH, barW, peakH * 2);
 
@@ -252,18 +254,18 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
           if (!b.clipped) {
             ctx.fillStyle = isPlayed
               ? isDark
-                ? '#58B0A2'
+                ? '#4DA597'
                 : '#3A7269'
               : isDark
-              ? '#A1ABA8'
-              : '#52525B';
+              ? '#9BA8A4'
+              : '#52605D';
             ctx.fillRect(x, midY - rmsH, barW, rmsH * 2);
           }
         }
       }
 
       // 6. Moving 60fps Playhead Cursor
-      ctx.fillStyle = isDark ? '#2DD4BF' : '#18181B';
+      ctx.fillStyle = isDark ? '#4DA597' : '#182220';
       ctx.fillRect(Math.round(playX) - 0.75, 0, 1.5, cssH);
 
       // Playhead top cap triangle
@@ -283,7 +285,6 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
     drawFrame();
 
-    // Redraw cleanly on window resize or theme toggle
     const handleResize = () => drawFrame();
     window.addEventListener('resize', handleResize);
     const observer = new MutationObserver(() => drawFrame());
@@ -357,27 +358,28 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
     <section
       aria-label="Waveform Inspector and Interactive Issue Markers"
       data-testid="waveform-inspector"
-      className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-5 space-y-3.5"
+      className="studio-elevated squircle-outer p-5 md:p-6 space-y-4"
     >
       {/* Top Bar: Title + Optional Compact Transport (Simple Mode) */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-zinc-200/80 dark:border-zinc-800">
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3.5 studio-hairline-b">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          <h3 className="text-sm font-bold text-[var(--text-primary)]">
             Waveform Timeline &amp; Issue Markers
           </h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Click anywhere on the waveform to scrub, or click a marker pin to audition and loop a flagged section.
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+            Click anywhere on the waveform to scrub, or select a marker pin to audition and loop a flagged cue.
           </p>
         </div>
 
         {showTransportBar && (
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={() => engine.togglePlay()}
               disabled={!audioState.hasPrimaryMix}
               aria-label={audioState.isPlaying ? 'Pause audio' : 'Play audio'}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#3A7269] hover:bg-[#2F5E56] text-white text-xs font-semibold transition-colors disabled:opacity-45 whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors disabled:opacity-45 whitespace-nowrap shrink-0 cursor-pointer"
             >
               {audioState.isPlaying ? (
                 <Pause className="w-3.5 h-3.5" />
@@ -385,41 +387,43 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
                 <Play className="w-3.5 h-3.5" />
               )}
               <span>{audioState.isPlaying ? 'Pause' : 'Play'}</span>
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={() => engine.seek(0, true)}
               disabled={!audioState.hasPrimaryMix}
               aria-label="Restart playback from 00:00"
-              className="p-1.5 rounded-lg border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-45"
+              className="p-1.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors disabled:opacity-45 cursor-pointer"
               title="Restart from 00:00.0"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={() => engine.toggleMono()}
               disabled={!audioState.hasPrimaryMix}
               aria-pressed={audioState.monoMode}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 squircle-inner text-xs font-medium border transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 cursor-pointer ${
                 audioState.monoMode
-                  ? 'bg-amber-600 text-white border-amber-600'
-                  : 'bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  ? 'bg-[var(--status-caution)] text-white border-[var(--status-caution)]'
+                  : 'bg-[var(--bg-surface)] text-[var(--text-primary)] border-[var(--border-hairline-color)] hover:border-[var(--border-active-color)]'
               }`}
               title="Equal-power mono fold (0.5*L + 0.5*R) with 15ms click-free ramp"
             >
               <Volume2 className="w-3.5 h-3.5" />
               <span>{audioState.monoMode ? 'Mono (0.5L+0.5R)' : 'Stereo'}</span>
-            </button>
+            </motion.button>
 
-            <div className="font-mono text-xs tabular-nums text-zinc-700 dark:text-zinc-300 pl-1">
-              <span ref={timecodeRef} className="font-semibold text-zinc-900 dark:text-zinc-100">
+            <div className="font-mono text-xs tabular-nums text-[var(--text-secondary)] pl-1">
+              <span ref={timecodeRef} className="font-semibold text-[var(--text-primary)]">
                 {formatTimecode(engine.getCurrentTime())}
               </span>
-              <span className="text-zinc-400 mx-1">/</span>
-              <span className="text-zinc-500">{formatTimecode(effectiveDuration)}</span>
+              <span className="opacity-40 mx-1">/</span>
+              <span>{formatTimecode(effectiveDuration)}</span>
             </div>
           </div>
         )}
@@ -427,51 +431,62 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
       {/* Decode / Playback Notice */}
       {audioState.playbackError && (
-        <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200">
-          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-2 p-3 squircle-inner bg-amber-50/80 dark:bg-amber-950/35 border border-[var(--status-caution)]/30 text-xs text-amber-900 dark:text-amber-200">
+          <AlertCircle className="w-4 h-4 text-[var(--status-caution)] shrink-0 mt-0.5" />
           <span>{audioState.playbackError}</span>
         </div>
       )}
 
       {/* Interactive Marker Pin Rail + 60fps HTML5 Canvas Stage */}
-      <div className="space-y-1.5">
-        {/* Marker Pin Rail */}
+      <div className="space-y-2">
+        {/* Marker Pin Rail — Interactive motion.button pins with tactile spring physics */}
         {markers.length > 0 && (
-          <div className="relative h-7 w-full" aria-label="Issue Timestamp Marker Pins">
+          <div className="relative h-7 w-full overflow-x-clip" aria-label="Issue Timestamp Marker Pins">
             {(() => {
               const sorted = [...markers].sort((a, b) => a.startSec - b.startSec);
-              const MIN_GAP_PCT = 6.8;
+              const MIN_GAP_PCT = 7.4;
               let lastPct = -Infinity;
               return sorted.map((mk, idx) => {
-                const rawPct = Math.max(3, Math.min(96, (mk.startSec / effectiveDuration) * 100));
-                const leftPct = Math.min(96, Math.max(rawPct, lastPct + MIN_GAP_PCT));
+                const rawPct = Math.max(8, Math.min(90, (mk.startSec / effectiveDuration) * 100));
+                const leftPct = Math.min(90, Math.max(rawPct, lastPct + MIN_GAP_PCT));
                 lastPct = leftPct;
                 const isSelected =
                   activeIssueId === mk.issueId && activeTimestamp?.start_sec === mk.startSec;
                 const isTech = mk.classification === 'objective_technical';
 
                 return (
-                  <button
+                  <motion.button
                     key={mk.id}
                     type="button"
                     data-testid={`issue-marker-pin-${idx}`}
                     onClick={() => handleMarkerClick(mk)}
-                    style={{ left: `${leftPct}%` }}
+                    whileHover={{ scale: 1.15, y: -2 }}
+                    whileTap={TACTILE_TAP}
+                    transition={STUDIO_SPRING}
+                    style={{ left: `${leftPct}%`, x: '-50%' }}
                     title={`${mk.issueTitle} (${formatTimecode(mk.startSec)} – ${formatTimecode(mk.endSec)})`}
                     aria-label={`Jump to ${mk.issueTitle} at ${formatTimecode(mk.startSec)}`}
-                    className={`absolute top-0 -translate-x-1/2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-semibold border transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-[#3A7269] ${
+                    className={`absolute top-0 inline-flex items-center gap-1 px-2 py-0.5 squircle-inner text-[10px] font-mono tabular-nums font-semibold border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] ${
                       isSelected
                         ? isTech
-                          ? 'bg-rose-600 text-white border-rose-700 z-30 shadow-xs'
-                          : 'bg-amber-600 text-white border-amber-700 z-30 shadow-xs'
+                          ? 'bg-[var(--status-alert)] text-white border-[var(--status-alert)] z-30'
+                          : 'bg-[var(--status-caution)] text-white border-[var(--status-caution)] z-30'
                         : isTech
-                        ? 'bg-rose-50 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-800 z-20 hover:z-30'
-                        : 'bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800 z-10 hover:z-30'
+                        ? 'bg-rose-50 dark:bg-rose-950/75 text-[var(--status-alert)] border-[var(--status-alert)]/35 z-20 hover:z-30'
+                        : 'bg-amber-50 dark:bg-amber-950/75 text-[var(--status-caution)] border-[var(--status-caution)]/35 z-10 hover:z-30'
                     }`}
                   >
+                    {isSelected && (
+                      <motion.span
+                        layoutId="active-marker-pin-ring"
+                        transition={STUDIO_SPRING}
+                        aria-hidden="true"
+                        className="absolute -inset-[3px] squircle-inner border border-[var(--accent-primary)]/60 pointer-events-none"
+                      />
+                    )}
                     <MapPin className="w-2.5 h-2.5 shrink-0" />
                     <span>{formatTimecode(mk.startSec)}</span>
-                  </button>
+                  </motion.button>
                 );
               });
             })()}
@@ -483,7 +498,7 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
           ref={containerRef}
           onClick={handleCanvasClick}
           data-testid="waveform-canvas-stage"
-          className="relative w-full h-32 rounded-lg border border-zinc-200 dark:border-zinc-800 overflow-hidden cursor-pointer select-none bg-[#FAFAFA] dark:bg-[#0B0F0E]"
+          className="relative w-full h-32 squircle-inner border border-[var(--border-hairline-color)] overflow-hidden cursor-pointer select-none bg-[var(--bg-canvas)]"
         >
           <canvas
             ref={canvasRef}
@@ -495,41 +510,42 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
       {/* Footer: Selected Marker Audition Bar + Quick Loop Toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-        <span className="font-mono tabular-nums text-zinc-500 dark:text-zinc-400">00:00.0</span>
+        <span className="font-mono tabular-nums text-[var(--text-secondary)]">00:00.0</span>
 
         {activeTimestamp ? (
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="text-zinc-700 dark:text-zinc-300">
+            <span className="text-[var(--text-secondary)]">
               Selected cue:{' '}
-              <strong className="font-mono tabular-nums text-zinc-900 dark:text-zinc-100">
+              <strong className="font-mono tabular-nums text-[var(--text-primary)]">
                 {formatTimecode(activeTimestamp.start_sec)} – {formatTimecode(activeTimestamp.end_sec)}
               </strong>{' '}
-              <span className="text-zinc-500 dark:text-zinc-400">({activeTimestamp.label})</span>
+              <span>({activeTimestamp.label})</span>
             </span>
 
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={handleToggleLoopForActive}
               disabled={!audioState.hasPrimaryMix}
               aria-pressed={isLoopingActiveMarker}
               data-testid="waveform-loop-toggle"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 ${
+              className={`inline-flex items-center gap-1.5 px-3 py-1 squircle-inner text-xs font-medium border transition-colors whitespace-nowrap shrink-0 disabled:opacity-45 cursor-pointer ${
                 isLoopingActiveMarker
-                  ? 'bg-[#3A7269] text-white border-[#3A7269]'
-                  : 'bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]'
+                  : 'bg-[var(--bg-surface)] text-[var(--text-primary)] border-[var(--border-hairline-color)] hover:border-[var(--border-active-color)]'
               }`}
             >
               <Repeat className="w-3 h-3" />
               <span>{isLoopingActiveMarker ? 'Looping Region' : 'Loop Section'}</span>
-            </button>
+            </motion.button>
           </div>
         ) : (
-          <span className="text-zinc-500 dark:text-zinc-400">
+          <span className="text-[var(--text-secondary)]">
             Select a marker pin above to seek and loop a flagged region
           </span>
         )}
 
-        <span className="font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+        <span className="font-mono tabular-nums text-[var(--text-secondary)]">
           {formatTimecode(effectiveDuration)}
         </span>
       </div>

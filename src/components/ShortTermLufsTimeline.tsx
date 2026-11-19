@@ -113,27 +113,27 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
     <section
       aria-label="Short-Term LUFS Timeline"
       data-testid="short-term-lufs-timeline"
-      className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-5 space-y-3"
+      className="h-full studio-elevated squircle-outer p-5 md:p-6 flex flex-col justify-between space-y-3.5"
     >
-      <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3 border-b border-zinc-200/80 dark:border-zinc-800">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5 studio-hairline-b">
         <div>
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+          <h3 className="text-sm font-bold text-[var(--text-primary)]">
             Short-Term LUFS Timeline
           </h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
             3-second loudness trajectory vs. {isUnmastered ? 'Unmastered' : 'Master'} target band
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-zinc-600 dark:text-zinc-400">
+        <div className="flex items-center gap-3 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
           <span>
             Int:{' '}
-            <strong className="text-zinc-900 dark:text-zinc-100">
+            <strong className="text-[var(--text-primary)]">
               {integratedLufs !== null ? `${integratedLufs.toFixed(1)}` : '—'}
             </strong>
           </span>
           <span>
             Max ST:{' '}
-            <strong className="text-zinc-900 dark:text-zinc-100">
+            <strong className="text-[var(--text-primary)]">
               {shortTermMaxLufs !== null ? `${shortTermMaxLufs.toFixed(1)}` : '—'}
             </strong>
           </span>
@@ -150,8 +150,8 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
         >
           <defs>
             <linearGradient id="lufsAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3A7269" stopOpacity="0.22" />
-              <stop offset="100%" stopColor="#3A7269" stopOpacity="0.02" />
+              <stop offset="0%" stopColor="var(--accent-primary)" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="var(--accent-primary)" stopOpacity="0.02" />
             </linearGradient>
           </defs>
 
@@ -160,8 +160,9 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             y={padT}
             width={plotW}
             height={plotH}
-            rx={5}
-            className="fill-[#FAFAFA] dark:fill-zinc-950/80 stroke-zinc-200 dark:stroke-zinc-800"
+            rx={6}
+            fill="var(--bg-surface)"
+            stroke="var(--border-hairline-color)"
             strokeWidth={1}
           />
 
@@ -171,7 +172,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             y={targetTopY}
             width={plotW}
             height={Math.max(2, targetBotY - targetTopY)}
-            className="fill-[#3A7269]/[0.13] dark:fill-teal-400/[0.14]"
+            fill="var(--accent-soft)"
           />
 
           {/* Horizontal Gridlines */}
@@ -184,14 +185,15 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
                   x2={padL + plotW}
                   y1={y}
                   y2={y}
-                  className="stroke-zinc-200/80 dark:stroke-zinc-800"
+                  stroke="var(--border-hairline-color)"
                   strokeWidth={1}
                 />
                 <text
                   x={padL - 6}
                   y={y + 3.5}
                   textAnchor="end"
-                  className="fill-zinc-400 dark:fill-zinc-500 text-[9.5px] font-mono tabular-nums"
+                  fill="var(--text-secondary)"
+                  className="text-[9.5px] font-mono tabular-nums"
                 >
                   {tick}
                 </text>
@@ -206,7 +208,8 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
               x2={padL + plotW}
               y1={integratedY}
               y2={integratedY}
-              className="stroke-amber-600/70 dark:stroke-amber-400/70"
+              stroke="var(--status-caution)"
+              strokeOpacity={0.75}
               strokeWidth={1.25}
               strokeDasharray="4 3"
             />
@@ -217,7 +220,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
           <path
             d={linePath}
             fill="none"
-            className="stroke-[#3A7269] dark:stroke-teal-400"
+            stroke="var(--accent-primary)"
             strokeWidth={1.85}
             strokeLinejoin="round"
           />
@@ -229,7 +232,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             x2={padL}
             y1={padT}
             y2={padT + plotH}
-            className="stroke-zinc-900 dark:stroke-zinc-100"
+            stroke="var(--text-primary)"
             strokeWidth={1.5}
           />
 
@@ -237,7 +240,8 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
           <text
             x={padL}
             y={padT + plotH + 18}
-            className="fill-zinc-500 dark:fill-zinc-400 text-[9.5px] font-mono tabular-nums"
+            fill="var(--text-secondary)"
+            className="text-[9.5px] font-mono tabular-nums"
           >
             00:00.0
           </text>
@@ -245,7 +249,8 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             x={padL + plotW / 2}
             y={padT + plotH + 18}
             textAnchor="middle"
-            className="fill-zinc-500 dark:fill-zinc-400 text-[9.5px] font-mono tabular-nums"
+            fill="var(--text-secondary)"
+            className="text-[9.5px] font-mono tabular-nums"
           >
             {formatTimecode(durationSeconds / 2)}
           </text>
@@ -253,20 +258,24 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             x={padL + plotW}
             y={padT + plotH + 18}
             textAnchor="end"
-            className="fill-zinc-500 dark:fill-zinc-400 text-[9.5px] font-mono tabular-nums"
+            fill="var(--text-secondary)"
+            className="text-[9.5px] font-mono tabular-nums"
           >
             {formatTimecode(durationSeconds)}
           </text>
         </svg>
       ) : (
-        <div className="h-40 rounded-lg border border-dashed border-zinc-200 dark:border-zinc-800 flex items-center justify-center text-xs text-zinc-500">
+        <div className="h-40 squircle-inner border border-dashed border-[var(--border-hairline-color)] bg-[var(--bg-surface)] flex items-center justify-center text-xs text-[var(--text-secondary)]">
           Short-term LUFS timeline buckets unavailable for this bounce.
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-[var(--text-secondary)] pt-1 studio-hairline-t">
         <span>
-          Target zone: <span className="font-mono tabular-nums">{targetMin.toFixed(1)} to {targetMax.toFixed(1)} LUFS</span>
+          Target zone:{' '}
+          <span className="font-mono tabular-nums text-[var(--text-primary)]">
+            {targetMin.toFixed(1)} to {targetMax.toFixed(1)} LUFS
+          </span>
         </span>
         <span>Click curve to seek playhead</span>
       </div>

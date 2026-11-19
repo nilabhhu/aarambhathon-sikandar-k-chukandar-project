@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { motion, MotionConfig } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   AnalysisReport,
   ArtistVisionTag,
@@ -25,10 +25,10 @@ import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import { StemOverlapMatrix } from './StemOverlapMatrix';
 import { RevisionDeltaPanel } from './RevisionDeltaPanel';
 import { AiMentorPanel } from './AiMentorPanel';
+import { STUDIO_EASE, STUDIO_SPRING, TACTILE_TAP } from '../lib/motion';
 import {
   Activity,
   ChevronDown,
-  ChevronUp,
   FileAudio,
   Info,
   Pause,
@@ -63,6 +63,7 @@ interface AdvancedMixCheckViewProps {
   errorMessage?: string | null;
   onCancelAnalysis?: () => void;
   onLoadDemonstration?: () => void;
+  onLoadDemoTrack?: () => void;
   stemReport?: StemMultitrackReport | null;
   onStemReportChange?: (report: StemMultitrackReport | null) => void;
   revisionComparison?: RevisionDeltaReport | null;
@@ -92,8 +93,6 @@ const DEFAULT_DAW_CONTEXT: UserReportedDawContext = {
   updated_at: null,
 };
 
-const SPRING_TRANSITION = { type: 'spring' as const, stiffness: 380, damping: 30 };
-
 function formatMeasurement(
   val: number | null | undefined,
   unit: string,
@@ -122,6 +121,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   isAnalyzing = false,
   analysisProgress = 0,
   analysisStageIndex = 0,
+  onLoadDemonstration,
+  onLoadDemoTrack,
   stemReport: controlledStemReport,
   onStemReportChange,
   revisionComparison: controlledRevisionComparison,
@@ -148,6 +149,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   const [localDawContext, setLocalDawContext] =
     useState<UserReportedDawContext>(DEFAULT_DAW_CONTEXT);
   const [dawDrawerOpen, setDawDrawerOpen] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   const stemReport =
     controlledStemReport !== undefined ? controlledStemReport : localStemReport;
@@ -195,6 +197,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
     report?.issues?.[0]?.issue_id ?? null
   );
+  const [spectrumFlashNonce, setSpectrumFlashNonce] = useState<number>(0);
   const [activeTimestamp, setActiveTimestamp] = useState<{
     start_sec: number;
     end_sec: number;
@@ -235,6 +238,31 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
     e.target.value = '';
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+    if (onSelectFile) {
+      onSelectFile(file);
+    } else if (onAnalyzeAudioFile) {
+      onAnalyzeAudioFile(file);
+    }
+  };
+
   const handleReferenceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -250,6 +278,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
   const handleFocusIssue = (issueId: string) => {
     setActiveIssueId(issueId);
+    setSpectrumFlashNonce((n) => n + 1);
     const issue = report?.issues.find((i) => i.issue_id === issueId);
     if (issue?.timestamps?.[0]) {
       const ts = issue.timestamps[0];
@@ -276,134 +305,157 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
       ? audioState.primaryDurationSec
       : report?.file_metadata.duration_seconds ?? 0;
 
+  const viewStateKey = isAnalyzing ? 'analyzing' : report ? `report-${report.report_id}` : 'empty';
+
   return (
-    <MotionConfig reducedMotion="user">
-      <div className="space-y-6">
-        {/* Workbench Header & Upload Controls */}
-        <section
-          aria-label="Advanced Mix Check Context Controls"
-          className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-5 md:p-6"
-        >
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">
-                Advanced Mix Check Workbench
-              </h1>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                Loudness-matched A/B auditioning, translation filter lab, original multitrack stem overlap, and v1 → v2 revision delta tracking.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div>
-                <label htmlFor="adv-genre-select" className="sr-only">
-                  Music Genre
-                </label>
-                <select
-                  id="adv-genre-select"
-                  value={genre}
-                  onChange={(e) => onChangeGenre(e.target.value as GenreId)}
-                  className="rounded-lg border border-zinc-300 dark:border-zinc-700 bg-[#FAFAFA] dark:bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
-                >
-                  {(Object.keys(GENRE_LABELS) as GenreId[]).map((g) => (
-                    <option key={g} value={g}>
-                      {GENRE_LABELS[g]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div
-                className="flex items-center gap-1 p-1 bg-[#F5F5F7] dark:bg-zinc-800 rounded-lg border border-zinc-200/80 dark:border-zinc-700"
-                role="group"
-                aria-label="Mix Stage"
-              >
-                {(['unmastered_mix', 'final_master'] as MixStage[]).map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => onChangeMixStage(st)}
-                    aria-pressed={mixStage === st}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                      mixStage === st
-                        ? 'bg-white text-zinc-900 shadow-xs dark:bg-zinc-950 dark:text-zinc-100 font-semibold'
-                        : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-                    }`}
-                  >
-                    {MIX_STAGE_LABELS[st].title}
-                  </button>
-                ))}
-              </div>
-
-              {/* Primary Audio Bounce Upload */}
-              <div className="flex items-center gap-1.5">
-                <label
-                  htmlFor="adv-audio-upload"
-                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 bg-[#FAFAFA] dark:bg-zinc-950 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:border-[#3A7269] cursor-pointer transition-colors shrink-0 whitespace-nowrap"
-                >
-                  <Upload className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400" />
-                  <span className="truncate max-w-[150px] font-mono">
-                    {selectedFile ? selectedFile.name : 'Upload Mix (A)'}
-                  </span>
-                </label>
-                <input
-                  id="adv-audio-upload"
-                  type="file"
-                  accept=".wav,.flac,.aiff,.mp3,.ogg,audio/*"
-                  onChange={handlePrimaryFileChange}
-                  className="sr-only"
-                  disabled={isAnalyzing}
-                />
-
-                {selectedFile && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={handleReAnalyze}
-                      disabled={isAnalyzing}
-                      className="px-3 py-2 rounded-lg bg-[#3A7269] hover:bg-[#2F5E56] text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap"
-                      title="Re-run DSP analysis with current genre/stage targets"
-                    >
-                      <RotateCcw className="w-3 h-3" />
-                      <span>Re-Analyze</span>
-                    </button>
-                    {onClearFile && (
-                      <button
-                        type="button"
-                        onClick={onClearFile}
-                        disabled={isAnalyzing}
-                        className="px-2.5 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-medium transition-colors whitespace-nowrap"
-                      >
-                        Clear
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+    <div className="space-y-6">
+      {/* Workbench Header & Upload Controls */}
+      <section
+        aria-label="Advanced Mix Check Context Controls"
+        className="studio-elevated squircle-outer p-5 md:p-6"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+              Advanced Mix Check Workbench
+            </h1>
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+              Loudness-matched A/B auditioning, translation filter lab, original multitrack stem overlap, and v1 → v2 revision delta tracking.
+            </p>
           </div>
 
-          {/* File Metadata Strip */}
-          {report && (
-            <div className="mt-4 pt-3.5 border-t border-zinc-200/80 dark:border-zinc-800 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs font-mono tabular-nums text-zinc-600 dark:text-zinc-400">
-              <span className="inline-flex items-center gap-1.5 text-zinc-900 dark:text-zinc-100 font-semibold">
-                <FileAudio className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400" />
-                {report.file_metadata.filename}
-              </span>
-              <span>{report.file_metadata.format}</span>
-              <span>{report.file_metadata.sample_rate_hz} Hz</span>
-              <span>
-                {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float32'}
-              </span>
-              <span>{report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}</span>
-              <span>{formatTimecode(report.file_metadata.duration_seconds)}</span>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <div>
+              <label htmlFor="adv-genre-select" className="sr-only">
+                Music Genre
+              </label>
+              <select
+                id="adv-genre-select"
+                value={genre}
+                onChange={(e) => onChangeGenre(e.target.value as GenreId)}
+                className="squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+              >
+                {(Object.keys(GENRE_LABELS) as GenreId[]).map((g) => (
+                  <option key={g} value={g}>
+                    {GENRE_LABELS[g]}
+                  </option>
+                ))}
+              </select>
             </div>
-          )}
-        </section>
 
-        {/* Animated DSP Analysis Loading Screen */}
+            <div
+              className="flex items-center gap-1 p-1 bg-[var(--bg-surface)] squircle-inner border border-[var(--border-hairline-color)]"
+              role="group"
+              aria-label="Mix Stage"
+            >
+              {(['unmastered_mix', 'final_master'] as MixStage[]).map((st) => {
+                const active = mixStage === st;
+                return (
+                  <motion.button
+                    key={st}
+                    type="button"
+                    whileTap={TACTILE_TAP}
+                    onClick={() => onChangeMixStage(st)}
+                    aria-pressed={active}
+                    className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                      active
+                        ? 'text-[var(--text-primary)] font-semibold'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {active && (
+                      <motion.span
+                        layoutId="adv-stage-pill"
+                        transition={STUDIO_SPRING}
+                        className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
+                      />
+                    )}
+                    <span className="relative z-10">{MIX_STAGE_LABELS[st].title}</span>
+                  </motion.button>
+                );
+              })}
+            </div>
+
+            {/* Primary Audio Bounce Upload */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <label
+                htmlFor="adv-audio-upload"
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`flex items-center gap-1.5 px-3 py-2 squircle-inner border border-dashed text-xs font-medium cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
+                  isDragOver
+                    ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
+                    : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)]'
+                }`}
+              >
+                <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                <span className="truncate max-w-[150px] font-mono">
+                  {selectedFile ? selectedFile.name : 'Upload Mix (A)'}
+                </span>
+              </label>
+              <input
+                id="adv-audio-upload"
+                type="file"
+                accept=".wav,.flac,.aiff,.mp3,.ogg,audio/*"
+                onChange={handlePrimaryFileChange}
+                className="sr-only"
+                disabled={isAnalyzing}
+              />
+
+              {selectedFile && (
+                <>
+                  <motion.button
+                    type="button"
+                    whileTap={TACTILE_TAP}
+                    onClick={handleReAnalyze}
+                    disabled={isAnalyzing}
+                    className="px-3 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
+                    title="Re-run DSP analysis with current genre/stage targets"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Re-Analyze</span>
+                  </motion.button>
+                  {onClearFile && (
+                    <motion.button
+                      type="button"
+                      whileTap={TACTILE_TAP}
+                      onClick={onClearFile}
+                      disabled={isAnalyzing}
+                      className="px-2.5 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] text-xs font-medium transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      Clear
+                    </motion.button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* File Metadata Strip */}
+        {report && (
+          <div className="mt-4 pt-3.5 studio-hairline-t flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
+            <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)] font-semibold">
+              <FileAudio className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+              {report.file_metadata.filename}
+            </span>
+            <span>{report.file_metadata.format}</span>
+            <span>{report.file_metadata.sample_rate_hz} Hz</span>
+            <span>
+              {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float32'}
+            </span>
+            <span>{report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}</span>
+            <span>{formatTimecode(report.file_metadata.duration_seconds)}</span>
+          </div>
+        )}
+      </section>
+
+      {/* AnimatePresence Transition: Empty Dropzone -> DSP Loading Scanner -> Populated Workbench */}
+      <AnimatePresence mode="wait">
         {isAnalyzing && (
           <DspAnalysisLoadingScreen
+            key={viewStateKey}
             fileName={selectedFile?.name || 'Uploaded Audio'}
             fileSizeBytes={selectedFile?.size || 0}
             genre={genre}
@@ -412,80 +464,124 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
           />
         )}
 
-        {/* Clean Empty State Prompt Card (Zero Preloaded Dummy Audio) */}
         {!report && !isAnalyzing && (
-          <section
+          <motion.section
+            key={viewStateKey}
             role="region"
             aria-label="No Audio Loaded"
             data-testid="advanced-empty-state"
-            className="border border-dashed border-zinc-300 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900/60 p-12 text-center space-y-4"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: isDragOver ? 1.008 : 1,
+            }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={isDragOver ? STUDIO_SPRING : { duration: 0.28, ease: STUDIO_EASE }}
+            className={`squircle-outer border border-dashed p-12 text-center space-y-4 transition-colors ${
+              isDragOver
+                ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)]'
+                : 'border-[var(--border-hairline-color)] bg-[var(--bg-elevated)]'
+            }`}
           >
-            <div className="w-14 h-14 rounded-full bg-[#3A7269]/10 dark:bg-teal-950/60 text-[#3A7269] dark:text-teal-400 mx-auto flex items-center justify-center">
-              <Activity className="w-7 h-7" />
+            <div className="w-14 h-14 squircle-inner bg-[var(--accent-soft)] border border-[var(--border-active-color)] text-[var(--accent-primary)] mx-auto flex items-center justify-center">
+              <Activity className="w-6 h-6" />
             </div>
-            <div className="max-w-md mx-auto space-y-1.5">
-              <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
+            <div className="max-w-md mx-auto space-y-2">
+              <h2 className="text-lg font-bold text-[var(--text-primary)]">
                 No Audio Loaded Yet
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                Select your genre, choose Unmastered Mix or Final Master, and upload your audio bounce (.WAV, .FLAC, .AIFF, or .MP3) above to open the Advanced Mix Check Workbench.
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                Drop Mix (A) here or choose a bounce (.WAV, .FLAC, .AIFF, or .MP3) above to open the Advanced Mix Check Workbench.
               </p>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed pt-1">
-                Upload Mix (A) to start—once loaded, you can optionally add a Reference Track (B) for loudness-matched A/B comparison.
+              <p className="text-[11px] text-[var(--text-secondary)]/85 leading-relaxed">
+                Once loaded, optionally add a Reference Track (B) for loudness-matched A/B comparison and translation filter checks.
               </p>
+              <div className="pt-3 flex flex-wrap items-center justify-center gap-2.5">
+                <label
+                  htmlFor="adv-audio-upload"
+                  className="inline-flex items-center gap-2 px-4 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                  <span>Upload Mix (A)</span>
+                </label>
+                {(onLoadDemoTrack || onLoadDemonstration) && (
+                  <motion.button
+                    type="button"
+                    whileTap={TACTILE_TAP}
+                    onClick={onLoadDemoTrack || onLoadDemonstration}
+                    data-testid="load-demo-track-btn"
+                    className="inline-flex items-center gap-2 px-4 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white font-mono text-xs font-semibold tracking-wide transition-colors cursor-pointer"
+                  >
+                    <Activity className="w-3.5 h-3.5" />
+                    <span>LOAD DEMO TRACK</span>
+                  </motion.button>
+                )}
+              </div>
             </div>
-          </section>
+          </motion.section>
         )}
 
-        {/* Populated Asymmetric Studio Workbench */}
         {!isAnalyzing && report && (
-          <>
+          <motion.div
+            key={viewStateKey}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.3, ease: STUDIO_EASE }}
+            className="space-y-6"
+          >
             {/* 1. Tactile Transport & Translation Deck */}
             <section
               aria-label="Tactile Transport and Translation Deck"
               data-testid="tactile-transport-deck"
-              className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-5 space-y-4"
+              className="studio-elevated squircle-outer p-5 md:p-6 space-y-4"
             >
               {/* Primary Controls Row */}
               <div className="flex flex-wrap items-center justify-between gap-4">
                 {/* Left: Transport Play/Pause + Restart + Live Timecode */}
                 <div className="flex items-center gap-3">
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={TACTILE_TAP}
                     onClick={() => engine.togglePlay()}
                     disabled={!audioState.hasPrimaryMix}
                     aria-label={audioState.isPlaying ? 'Pause playback' : 'Start playback'}
                     data-testid="deck-play-toggle"
-                    className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-[#3A7269] hover:bg-[#2F5E56] text-white transition-colors disabled:opacity-45 shrink-0"
+                    className="inline-flex items-center justify-center w-10 h-10 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white transition-colors disabled:opacity-45 shrink-0 cursor-pointer"
                   >
                     {audioState.isPlaying ? (
                       <Pause className="w-4 h-4" />
                     ) : (
                       <Play className="w-4 h-4 ml-0.5" />
                     )}
-                  </button>
+                  </motion.button>
 
-                  <button
+                  <motion.button
                     type="button"
+                    whileTap={TACTILE_TAP}
                     onClick={() => engine.seek(0, true)}
                     disabled={!audioState.hasPrimaryMix}
                     aria-label="Restart from beginning"
-                    className="p-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-45"
+                    className="p-2.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors disabled:opacity-45 cursor-pointer"
                   >
                     <RotateCcw className="w-4 h-4" />
-                  </button>
+                  </motion.button>
 
                   <div className="font-mono tabular-nums">
-                    <div className="text-base font-bold text-zinc-900 dark:text-zinc-100 leading-none">
+                    <div className="text-base font-bold text-[var(--text-primary)] leading-none">
                       <span ref={deckTimecodeRef}>
                         {formatTimecode(engine.getCurrentTime())}
                       </span>
-                      <span className="text-zinc-400 font-normal text-xs mx-1.5">/</span>
-                      <span className="text-zinc-500 font-normal text-xs">
+                      <span className="opacity-35 font-normal text-xs mx-1.5">/</span>
+                      <span className="text-[var(--text-secondary)] font-normal text-xs">
                         {formatTimecode(effectiveDuration)}
                       </span>
                     </div>
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 flex items-center gap-2">
+                    <div className="text-[11px] text-[var(--text-secondary)] mt-1 flex items-center gap-2">
                       <span>
                         Deck {audioState.activeDeck}
                         {audioState.isLooping && audioState.loopRegion ? ' · Loop Active' : ''}
@@ -494,10 +590,10 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                         <button
                           type="button"
                           onClick={() => engine.toggleLooping()}
-                          className={`inline-flex items-center gap-1 font-medium transition-colors ${
+                          className={`inline-flex items-center gap-1 font-medium transition-colors cursor-pointer ${
                             audioState.isLooping
-                              ? 'text-[#3A7269] dark:text-teal-400'
-                              : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                              ? 'text-[var(--accent-primary)]'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                         >
                           <Repeat className="w-3 h-3" />
@@ -508,13 +604,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                   </div>
                 </div>
 
-                {/* Right: Three Segmented Tactile Pill Groups (motion/react layoutId) */}
+                {/* Right: Three Segmented Tactile Pill Wells (STUDIO_SPRING + TACTILE_TAP) */}
                 <div className="flex flex-wrap items-center gap-3">
                   {/* Segmented 1: Mix A / Reference B / Revision v2 */}
                   <div
                     role="group"
                     aria-label="Active Deck A/B/v2 Switcher"
-                    className="inline-flex items-center p-1 rounded-lg bg-[#F5F5F7] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
+                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
                   >
                     {(
                       audioState.hasRevisionV2
@@ -532,37 +628,38 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           ? 'Rev v2'
                           : 'Reference B';
                       return (
-                        <button
+                        <motion.button
                           key={deck}
                           type="button"
+                          whileTap={disabled ? undefined : TACTILE_TAP}
                           disabled={disabled}
                           onClick={() => engine.setActiveDeck(deck)}
                           aria-pressed={active}
                           data-testid={`deck-switch-${deck}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed ${
+                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
                             active
-                              ? 'text-white dark:text-white'
-                              : 'text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-white'
+                              ? 'text-white font-semibold'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-ab-pill"
-                              transition={SPRING_TRANSITION}
-                              className="absolute inset-0 rounded-md bg-[#3A7269] dark:bg-teal-600"
+                              transition={STUDIO_SPRING}
+                              className="absolute inset-0 squircle-inner bg-[var(--accent-primary)]"
                             />
                           )}
                           <span className="relative z-10">{deckLabel}</span>
-                        </button>
+                        </motion.button>
                       );
                     })}
                   </div>
 
-                  {/* Segmented 2: Stereo / Mono (Equal-Power 0.5*L + 0.5*R) */}
+                  {/* Segmented 2: Stereo / Mono */}
                   <div
                     role="group"
                     aria-label="Stereo or Equal-Power Mono Folding"
-                    className="inline-flex items-center p-1 rounded-lg bg-[#F5F5F7] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
+                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
                   >
                     {[
                       { id: false, label: 'Stereo' },
@@ -570,27 +667,28 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     ].map((opt) => {
                       const active = audioState.monoMode === opt.id;
                       return (
-                        <button
+                        <motion.button
                           key={opt.label}
                           type="button"
+                          whileTap={TACTILE_TAP}
                           onClick={() => engine.setMonoMode(opt.id)}
                           aria-pressed={active}
                           data-testid={`monitoring-${opt.label.toLowerCase()}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                             active
-                              ? 'text-zinc-900 dark:text-zinc-100 font-semibold'
-                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                              ? 'text-[var(--text-primary)] font-semibold'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-mono-pill"
-                              transition={SPRING_TRANSITION}
-                              className="absolute inset-0 rounded-md bg-white dark:bg-zinc-800 shadow-xs border border-zinc-200/80 dark:border-zinc-700"
+                              transition={STUDIO_SPRING}
+                              className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
                             />
                           )}
                           <span className="relative z-10">{opt.label}</span>
-                        </button>
+                        </motion.button>
                       );
                     })}
                   </div>
@@ -599,34 +697,35 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                   <div
                     role="group"
                     aria-label="Mix Translation Lab Filter Profile"
-                    className="inline-flex items-center p-1 rounded-lg bg-[#F5F5F7] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800"
+                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
                   >
                     {(['full', 'phone', 'laptop'] as TranslationMode[]).map((mode) => {
                       const active = audioState.translationMode === mode;
                       return (
-                        <button
+                        <motion.button
                           key={mode}
                           type="button"
+                          whileTap={TACTILE_TAP}
                           onClick={() => engine.setTranslationMode(mode)}
                           aria-pressed={active}
                           data-testid={`translation-${mode}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                             active
-                              ? 'text-zinc-900 dark:text-zinc-100 font-semibold'
-                              : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                              ? 'text-[var(--text-primary)] font-semibold'
+                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-translation-pill"
-                              transition={SPRING_TRANSITION}
-                              className="absolute inset-0 rounded-md bg-white dark:bg-zinc-800 shadow-xs border border-zinc-200/80 dark:border-zinc-700"
+                              transition={STUDIO_SPRING}
+                              className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
                             />
                           )}
                           <span className="relative z-10">
                             {TRANSLATION_PROFILES[mode].shortLabel}
                           </span>
-                        </button>
+                        </motion.button>
                       );
                     })}
                   </div>
@@ -634,13 +733,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
 
               {/* Reference Track B Upload + Loudness Match Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 border-t border-zinc-200/80 dark:border-zinc-800 text-xs">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 studio-hairline-t text-xs">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <label
                     htmlFor="adv-ref-upload"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-[#FAFAFA] dark:bg-zinc-950 hover:border-[#3A7269] text-zinc-700 dark:text-zinc-300 font-medium cursor-pointer transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] font-medium cursor-pointer transition-colors whitespace-nowrap"
                   >
-                    <Upload className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400" />
+                    <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
                     <span>
                       {audioState.loadingReference
                         ? 'Decoding Reference B...'
@@ -659,13 +758,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
                   {audioState.hasReferenceTrack && (
                     <>
-                      <span className="font-mono text-zinc-800 dark:text-zinc-200 truncate max-w-[200px]">
+                      <span className="font-mono text-[var(--text-primary)] truncate max-w-[200px]">
                         {audioState.referenceFileName}
                       </span>
-                      <span aria-hidden="true" className="text-zinc-300 dark:text-zinc-700">·</span>
+                      <span aria-hidden="true" className="opacity-35">·</span>
                       <span
                         data-testid="reference-loudness-offset"
-                        className="font-mono tabular-nums text-[#3A7269] dark:text-teal-400 font-semibold"
+                        className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold"
                       >
                         Loudness Match:{' '}
                         {audioState.referenceMatchOffsetDb !== null
@@ -678,7 +777,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           engine.setLoudnessMatchEnabled(!audioState.loudnessMatchEnabled)
                         }
                         aria-pressed={audioState.loudnessMatchEnabled}
-                        className="text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-2 whitespace-nowrap"
+                        className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 whitespace-nowrap cursor-pointer"
                       >
                         {audioState.loudnessMatchEnabled ? 'Matched (Click to Bypass)' : 'Match Bypassed'}
                       </button>
@@ -686,7 +785,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                         type="button"
                         onClick={() => engine.clearReferenceTrack()}
                         aria-label="Remove Reference Track B"
-                        className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500"
+                        className="p-1 squircle-inner hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-pointer"
                       >
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -699,8 +798,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                   data-testid="translation-disclosure"
                   className={`flex items-center gap-1.5 text-[11px] ${
                     activeTranslationProfile.isApproximation
-                      ? 'text-amber-800 dark:text-amber-300 font-medium'
-                      : 'text-zinc-500 dark:text-zinc-400'
+                      ? 'text-[var(--status-caution)] font-medium'
+                      : 'text-[var(--text-secondary)]'
                   }`}
                 >
                   <Info className="w-3.5 h-3.5 shrink-0" />
@@ -712,45 +811,45 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
 
               {/* Key Telemetry Strip (Tabular-Nums) */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3.5 border-t border-zinc-200/80 dark:border-zinc-800">
-                <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 px-3.5 py-2.5">
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3.5 studio-hairline-t">
+                <div className="squircle-inner studio-surface px-3.5 py-2.5">
+                  <div className="text-[11px] text-[var(--text-secondary)]">
                     Integrated Loudness
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-zinc-900 dark:text-zinc-100 mt-0.5">
+                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
                     {formatMeasurement(report.measurements.integrated_loudness.value, 'LUFS')}
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 px-3.5 py-2.5">
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <div className="squircle-inner studio-surface px-3.5 py-2.5">
+                  <div className="text-[11px] text-[var(--text-secondary)]">
                     True Peak Max
                   </div>
                   <div
                     className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${
                       report.measurements.true_peak_max.status === 'critical'
-                        ? 'text-rose-700 dark:text-rose-400'
-                        : 'text-zinc-900 dark:text-zinc-100'
+                        ? 'text-[var(--status-alert)]'
+                        : 'text-[var(--text-primary)]'
                     }`}
                   >
                     {formatMeasurement(report.measurements.true_peak_max.value, 'dBTP', 2, true)}
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 px-3.5 py-2.5">
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <div className="squircle-inner studio-surface px-3.5 py-2.5">
+                  <div className="text-[11px] text-[var(--text-secondary)]">
                     Loudness Range (LRA)
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-zinc-900 dark:text-zinc-100 mt-0.5">
+                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
                     {formatMeasurement(report.measurements.loudness_range_lra.value, 'LU')}
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 px-3.5 py-2.5">
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <div className="squircle-inner studio-surface px-3.5 py-2.5">
+                  <div className="text-[11px] text-[var(--text-secondary)]">
                     Phase Correlation (Mean / Min)
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-zinc-900 dark:text-zinc-100 mt-0.5">
+                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
                     {report.file_metadata.channels === 1
                       ? '+1.00 / +1.00'
                       : `${formatMeasurement(
@@ -785,7 +884,6 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
             {/* 3. Three Clean Diagnostic Visualizations (Asymmetric Studio Grid) */}
             <div className="space-y-6">
-              {/* Diagnostic 1: 6-Band Tonal Balance vs. Genre Target Envelope */}
               <SpectralTonalBalanceGraph
                 report={report}
                 genre={genre}
@@ -793,11 +891,13 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 measuredSixBands={audioState.primarySixBands}
                 referenceSixBands={audioState.referenceSixBands}
                 referenceFileName={audioState.referenceFileName}
+                spectrumBins={audioState.primarySpectrumBins}
                 variant="advanced"
+                focusedIssueId={activeIssueId}
+                flashNonce={spectrumFlashNonce}
                 onSelectFlaggedIssue={handleFocusIssue}
               />
 
-              {/* Diagnostic 2 & 3: Asymmetric 7/5 Split — Short-Term LUFS Timeline + Phase Correlation Meter */}
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
                 <div className="lg:col-span-7 flex flex-col">
                   <div className="flex-1">
@@ -829,54 +929,64 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               {/* Objective Technical Warnings */}
               <section
                 aria-label="Objective Technical Warnings"
-                className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 space-y-4"
+                className="studio-elevated squircle-outer p-6 space-y-4"
               >
-                <div className="pb-3 border-b border-zinc-200 dark:border-zinc-800">
-                  <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                <div className="pb-3.5 studio-hairline-b">
+                  <h2 className="text-base font-bold text-[var(--text-primary)]">
                     Objective Technical Warnings ({objectiveIssues.length})
                   </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                     Deterministic boundary violations (true-peak overshoots, clipping, negative phase correlation).
                   </p>
                 </div>
 
                 {objectiveIssues.length === 0 ? (
-                  <p className="text-xs text-[#3A7269] dark:text-teal-400 font-medium py-4">
+                  <p className="text-xs text-[var(--status-safe)] font-medium py-4">
                     No objective technical boundary violations detected for this stage.
                   </p>
                 ) : (
-                  <div className="divide-y divide-zinc-200/80 dark:divide-zinc-800">
+                  <div className="space-y-3">
                     {objectiveIssues.map((issue) => {
                       const isSelected = activeIssueId === issue.issue_id;
                       return (
                         <article
                           key={issue.issue_id}
+                          data-testid={`diagnostic-card-${issue.issue_id}`}
                           onClick={() => handleFocusIssue(issue.issue_id)}
-                          className={`py-4 first:pt-1 last:pb-1 cursor-pointer rounded-md transition-colors ${
+                          className={`relative p-4 squircle-inner border cursor-pointer transition-colors ${
                             isSelected
-                              ? 'bg-[#3A7269]/[0.04] dark:bg-teal-950/25 px-3 -mx-3'
-                              : ''
+                              ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/55'
+                              : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+                          {isSelected && (
+                            <motion.span
+                              layoutId="active-issue-indicator"
+                              transition={STUDIO_SPRING}
+                              aria-hidden="true"
+                              className="absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full bg-[var(--accent-primary)]"
+                            />
+                          )}
+
+                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
                             <span
                               className={`font-semibold ${
                                 issue.severity === 'critical'
-                                  ? 'text-rose-700 dark:text-rose-400'
-                                  : 'text-amber-700 dark:text-amber-400'
+                                  ? 'text-[var(--status-alert)]'
+                                  : 'text-[var(--status-caution)]'
                               }`}
                             >
                               {issue.severity} · {(issue.confidence * 100).toFixed(0)}% confidence
                             </span>
                             <span>{issue.domain}</span>
                           </div>
-                          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+                          <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
                             {issue.title}
                           </h3>
-                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
+                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-[var(--text-primary)]">
                             {issue.evidence.map((ev) => (
                               <div key={ev.metric_key} className="flex justify-between gap-2">
-                                <span className="text-zinc-500 dark:text-zinc-400">
+                                <span className="text-[var(--text-secondary)]">
                                   {ev.metric_key}
                                 </span>
                                 <span className="font-semibold">
@@ -885,8 +995,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                               </div>
                             ))}
                           </div>
-                          <p className="mt-2.5 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                            <strong className="text-zinc-900 dark:text-zinc-200">Fix: </strong>
+                          <p className="mt-2.5 text-xs text-[var(--text-secondary)] leading-relaxed">
+                            <strong className="text-[var(--text-primary)]">Fix: </strong>
                             {issue.learning_guide.what_to_try}
                           </p>
                         </article>
@@ -899,48 +1009,58 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               {/* Subjective Stylistic Differences */}
               <section
                 aria-label="Subjective Stylistic Differences"
-                className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 space-y-4"
+                className="studio-elevated squircle-outer p-6 space-y-4"
               >
-                <div className="pb-3 border-b border-zinc-200 dark:border-zinc-800">
-                  <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                <div className="pb-3.5 studio-hairline-b">
+                  <h2 className="text-base font-bold text-[var(--text-primary)]">
                     Stylistic &amp; Genre Context Notes ({stylisticIssues.length})
                   </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                     Tonal and macrodynamic traits compared against {GENRE_LABELS[genre]} conventions. Judge by ear.
                   </p>
                 </div>
 
                 {stylisticIssues.length === 0 ? (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 py-4">
+                  <p className="text-xs text-[var(--text-secondary)] py-4">
                     No notable tonal or macrodynamic deviations flagged for {GENRE_LABELS[genre]}.
                   </p>
                 ) : (
-                  <div className="divide-y divide-zinc-200/80 dark:divide-zinc-800">
+                  <div className="space-y-3">
                     {stylisticIssues.map((issue) => {
                       const isSelected = activeIssueId === issue.issue_id;
                       return (
                         <article
                           key={issue.issue_id}
+                          data-testid={`diagnostic-card-${issue.issue_id}`}
                           onClick={() => handleFocusIssue(issue.issue_id)}
-                          className={`py-4 first:pt-1 last:pb-1 cursor-pointer rounded-md transition-colors ${
+                          className={`relative p-4 squircle-inner border cursor-pointer transition-colors ${
                             isSelected
-                              ? 'bg-[#3A7269]/[0.04] dark:bg-teal-950/25 px-3 -mx-3'
-                              : ''
+                              ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/55'
+                              : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
                           }`}
                         >
-                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
-                            <span className="font-semibold text-[#3A7269] dark:text-teal-400">
+                          {isSelected && (
+                            <motion.span
+                              layoutId="active-issue-indicator"
+                              transition={STUDIO_SPRING}
+                              aria-hidden="true"
+                              className="absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full bg-[var(--accent-primary)]"
+                            />
+                          )}
+
+                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
+                            <span className="font-semibold text-[var(--accent-primary)]">
                               stylistic · {(issue.confidence * 100).toFixed(0)}% confidence
                             </span>
                             <span>{issue.domain}</span>
                           </div>
-                          <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
+                          <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
                             {issue.title}
                           </h3>
-                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-zinc-700 dark:text-zinc-300">
+                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-[var(--text-primary)]">
                             {issue.evidence.map((ev) => (
                               <div key={ev.metric_key} className="flex justify-between gap-2">
-                                <span className="text-zinc-500 dark:text-zinc-400">
+                                <span className="text-[var(--text-secondary)]">
                                   {ev.metric_key}
                                 </span>
                                 <span className="font-semibold">
@@ -949,8 +1069,8 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                               </div>
                             ))}
                           </div>
-                          <p className="mt-2.5 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                            <strong className="text-zinc-900 dark:text-zinc-200">Experiment: </strong>
+                          <p className="mt-2.5 text-xs text-[var(--text-secondary)] leading-relaxed">
+                            <strong className="text-[var(--text-primary)]">Experiment: </strong>
                             {issue.learning_guide.what_to_try}
                           </p>
                         </article>
@@ -961,7 +1081,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </section>
             </div>
 
-            {/* 4b. Phase 5: Evidence-Bound AI Mix Mentor & Artist Vision */}
+            {/* 4b. Evidence-Bound AI Mix Mentor & Artist Vision */}
             <AiMentorPanel
               report={report}
               genre={genre}
@@ -978,34 +1098,34 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
             {/* 5. Full Standardized DSP Parameter Table */}
             <section
               aria-label="Standardized Mathematical DSP Measurements Table"
-              className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 space-y-4"
+              className="studio-elevated squircle-outer p-6 space-y-4"
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5 studio-hairline-b">
                 <div>
-                  <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">
+                  <h2 className="text-base font-bold text-[var(--text-primary)]">
                     Complete Mathematical DSP Telemetry
                   </h2>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
                     ITU-R BS.1770-4, EBU R128, IEC 60268, and Welch PSD measurements (sole source of truth).
                   </p>
                 </div>
-                <span className="text-xs font-mono text-[#3A7269] dark:text-teal-400">
+                <span className="text-xs font-mono text-[var(--accent-primary)]">
                   Source: {report.measurements.integrated_loudness.source}
                 </span>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto squircle-inner border border-[var(--border-hairline-color)]">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
-                      <th className="py-2.5 pr-4">Parameter</th>
+                    <tr className="bg-[var(--bg-surface)] studio-hairline-b text-[var(--text-secondary)] font-semibold">
+                      <th className="py-2.5 px-4">Parameter</th>
                       <th className="py-2.5 px-4">Standard</th>
                       <th className="py-2.5 px-4 text-right">Measured</th>
                       <th className="py-2.5 px-4 text-right">Target Range</th>
-                      <th className="py-2.5 pl-4 text-right">Status</th>
+                      <th className="py-2.5 px-4 text-right">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-200/70 dark:divide-zinc-800/80">
+                  <tbody className="divide-y divide-[var(--border-hairline-color)]">
                     {(
                       [
                         ['Integrated Loudness', report.measurements.integrated_loudness, 'LUFS', 1],
@@ -1036,33 +1156,33 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
                       const statusCls =
                         m.status === 'critical'
-                          ? 'text-rose-700 dark:text-rose-400 font-semibold'
+                          ? 'text-[var(--status-alert)] font-semibold'
                           : m.status === 'warning'
-                          ? 'text-amber-700 dark:text-amber-400 font-semibold'
+                          ? 'text-[var(--status-caution)] font-semibold'
                           : m.status === 'unavailable'
-                          ? 'text-zinc-400 dark:text-zinc-500'
-                          : 'text-[#3A7269] dark:text-teal-400 font-medium';
+                          ? 'text-[var(--text-secondary)] opacity-60'
+                          : 'text-[var(--status-safe)] font-medium';
 
                       return (
                         <tr
                           key={label}
-                          className="hover:bg-[#FAFAFA] dark:hover:bg-zinc-950/50 transition-colors"
+                          className="hover:bg-[var(--bg-surface)]/70 transition-colors"
                         >
-                          <td className="py-2.5 pr-4 font-medium text-zinc-900 dark:text-zinc-100">
+                          <td className="py-2.5 px-4 font-medium text-[var(--text-primary)]">
                             {label}
                           </td>
-                          <td className="py-2.5 px-4 text-zinc-500 dark:text-zinc-400">
+                          <td className="py-2.5 px-4 text-[var(--text-secondary)]">
                             {m.standard}
                           </td>
-                          <td className="py-2.5 px-4 text-right font-mono tabular-nums font-semibold text-zinc-900 dark:text-zinc-100">
+                          <td className="py-2.5 px-4 text-right font-mono tabular-nums font-semibold text-[var(--text-primary)]">
                             {m.status === 'unavailable' || m.value === null
                               ? 'N/A'
                               : formatMeasurement(m.value, unit, dec)}
                           </td>
-                          <td className="py-2.5 px-4 text-right font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+                          <td className="py-2.5 px-4 text-right font-mono tabular-nums text-[var(--text-secondary)]">
                             {targetStr}
                           </td>
-                          <td className={`py-2.5 pl-4 text-right capitalize ${statusCls}`}>
+                          <td className={`py-2.5 px-4 text-right capitalize ${statusCls}`}>
                             {m.status}
                           </td>
                         </tr>
@@ -1073,7 +1193,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </section>
 
-            {/* 6. Phase 4: Before / After Mix Revision Verification (v1 vs. v2) */}
+            {/* 6. Before / After Mix Revision Verification (v1 vs. v2) */}
             <RevisionDeltaPanel
               v1Report={report}
               v1File={selectedFile}
@@ -1083,164 +1203,175 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               comparison={revisionComparison}
               onComparisonChange={setRevisionComparison}
             />
-          </>
+          </motion.div>
         )}
+      </AnimatePresence>
 
-        {/* Phase 4: Original Multitrack Stem Overlap Matrix (Rule 1 Hard-Locked when has_user_stems === false) */}
-        <StemOverlapMatrix
-          consent={consent}
-          primaryMixFile={selectedFile}
-          stemReport={stemReport}
-          onStemReportChange={setStemReport}
-        />
+      {/* Original Multitrack Stem Overlap Matrix (Rule 1 Hard-Locked when has_user_stems === false) */}
+      <StemOverlapMatrix
+        consent={consent}
+        primaryMixFile={selectedFile}
+        stemReport={stemReport}
+        onStemReportChange={setStemReport}
+      />
 
-        {/* Phase 4: Optional Collapsible DAW / Plugin Chain Context Drawer (Strictly user_reported_context) */}
-        <section
-          aria-label="Optional DAW and Plugin Chain Context"
-          data-testid="daw-context-drawer"
-          className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 overflow-hidden"
+      {/* Optional Collapsible DAW / Plugin Chain Context Drawer (Strictly user_reported_context) */}
+      <section
+        aria-label="Optional DAW and Plugin Chain Context"
+        data-testid="daw-context-drawer"
+        className="studio-elevated squircle-outer overflow-hidden"
+      >
+        <button
+          type="button"
+          onClick={() => setDawDrawerOpen((open) => !open)}
+          aria-expanded={dawDrawerOpen}
+          data-testid="daw-context-toggle"
+          className="w-full px-5 py-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-[var(--bg-surface)]/70 transition-colors cursor-pointer"
         >
-          <button
-            type="button"
-            onClick={() => setDawDrawerOpen((open) => !open)}
-            aria-expanded={dawDrawerOpen}
-            data-testid="daw-context-toggle"
-            className="w-full px-5 py-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-[#FAFAFA] dark:hover:bg-zinc-950/60 transition-colors"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-[#F5F5F7] dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center justify-center shrink-0">
-                <SlidersHorizontal className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-                    DAW &amp; Plugin Chain Context (Optional)
-                  </h2>
-                  <span
-                    data-testid="daw-context-source-tag"
-                    className="inline-flex items-center px-2 py-0.5 rounded border border-zinc-300 dark:border-zinc-700 bg-[#F5F5F7] dark:bg-zinc-950 text-[10px] font-mono text-zinc-600 dark:text-zinc-400"
-                  >
-                    user_reported_context
-                  </span>
-                  {hasDawNotes && (
-                    <span className="text-[11px] font-mono text-[#3A7269] dark:text-teal-400">
-                      · Session notes recorded
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Log your DAW, mix-bus routing, or plugin chain notes. Kept strictly separate from measured DSP metrics.
-                </p>
-              </div>
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 squircle-inner studio-surface flex items-center justify-center shrink-0">
+              <SlidersHorizontal className="w-4 h-4 text-[var(--accent-primary)]" />
             </div>
-            <span className="inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 shrink-0">
-              <span>{dawDrawerOpen ? 'Collapse' : 'Expand'}</span>
-              {dawDrawerOpen ? (
-                <ChevronUp className="w-4 h-4" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-            </span>
-          </button>
-
-          {dawDrawerOpen && (
-            <div className="px-5 pb-5 pt-4 border-t border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/50 space-y-4">
-              <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3.5 py-2.5 flex items-start gap-2 text-xs text-zinc-600 dark:text-zinc-400">
-                <Info className="w-4 h-4 text-zinc-500 shrink-0 mt-0.5" />
-                <div>
-                  <span className="font-mono text-[11px] font-semibold text-zinc-800 dark:text-zinc-200">
-                    DATA PROVENANCE BOUNDARY (user_reported_context):
-                  </span>{' '}
-                  Entries below are self-reported session notes only. They never alter, override, or fabricate mathematical DSP measurements (Rule 2).
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="daw-name-select"
-                    className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
-                  >
-                    DAW Environment
-                  </label>
-                  <select
-                    id="daw-name-select"
-                    data-testid="daw-name-select"
-                    value={dawContext.daw_name}
-                    onChange={(e) => updateDawContext({ daw_name: e.target.value })}
-                    className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
-                  >
-                    <option value="">Select DAW (optional)...</option>
-                    {DAW_OPTIONS.filter(Boolean).map((daw) => (
-                      <option key={daw} value={daw}>
-                        {daw}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="daw-bus-routing"
-                    className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
-                  >
-                    Bus Routing / Gain Staging Notes
-                  </label>
-                  <input
-                    id="daw-bus-routing"
-                    data-testid="daw-bus-routing"
-                    type="text"
-                    value={dawContext.bus_routing}
-                    onChange={(e) => updateDawContext({ bus_routing: e.target.value })}
-                    placeholder="e.g., Drum Bus -> Glue Comp (-2 dB GR) -> Stereo Out"
-                    className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="daw-plugin-chain"
-                  className="block text-xs font-medium text-zinc-700 dark:text-zinc-300 mb-1.5"
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-bold text-[var(--text-primary)]">
+                  DAW &amp; Plugin Chain Context (Optional)
+                </h2>
+                <span
+                  data-testid="daw-context-source-tag"
+                  className="inline-flex items-center px-2 py-0.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[10px] font-mono text-[var(--text-secondary)]"
                 >
-                  Active Mix-Bus / Mastering Plugin Chain Notes
-                </label>
-                <textarea
-                  id="daw-plugin-chain"
-                  data-testid="daw-plugin-chain"
-                  rows={2}
-                  value={dawContext.plugin_chain_notes}
-                  onChange={(e) => updateDawContext({ plugin_chain_notes: e.target.value })}
-                  placeholder="e.g., Pro-Q3 high-pass 30 Hz -> SSL Bus Comp 4:1 -> Pro-L2 ceiling -1.0 dBTP (bypassed for mix check)"
-                  className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[#3A7269]"
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-                <span>
-                  Tag: <strong className="text-zinc-800 dark:text-zinc-200">{dawContext.source_tag}</strong>
-                  {dawContext.updated_at ? ` · Updated in session` : ' · Empty'}
+                  user_reported_context
                 </span>
                 {hasDawNotes && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onDawContextChange) {
-                        onDawContextChange(DEFAULT_DAW_CONTEXT);
-                      } else {
-                        setLocalDawContext(DEFAULT_DAW_CONTEXT);
-                      }
-                    }}
-                    className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-2"
-                  >
-                    Clear Session Notes
-                  </button>
+                  <span className="text-[11px] font-mono text-[var(--accent-primary)]">
+                    · Session notes recorded
+                  </span>
                 )}
               </div>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+                Log your DAW, mix-bus routing, or plugin chain notes. Kept strictly separate from measured DSP metrics.
+              </p>
             </div>
+          </div>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] shrink-0">
+            <span>{dawDrawerOpen ? 'Collapse' : 'Expand'}</span>
+            <ChevronDown
+              className={`w-4 h-4 transition-transform duration-200 ${
+                dawDrawerOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </span>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {dawDrawerOpen && (
+            <motion.div
+              key="daw-drawer-body"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.24, ease: STUDIO_EASE }}
+              className="overflow-hidden"
+            >
+              <div className="px-5 pb-5 pt-4 studio-hairline-t bg-[var(--bg-surface)] space-y-4">
+                <div className="squircle-inner studio-elevated px-3.5 py-2.5 flex items-start gap-2 text-xs text-[var(--text-secondary)]">
+                  <Info className="w-4 h-4 text-[var(--accent-primary)] shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-mono text-[11px] font-semibold text-[var(--text-primary)]">
+                      DATA PROVENANCE BOUNDARY (user_reported_context):
+                    </span>{' '}
+                    Entries below are self-reported session notes only. They never alter, override, or fabricate mathematical DSP measurements (Rule 2).
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label
+                      htmlFor="daw-name-select"
+                      className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                    >
+                      DAW Environment
+                    </label>
+                    <select
+                      id="daw-name-select"
+                      data-testid="daw-name-select"
+                      value={dawContext.daw_name}
+                      onChange={(e) => updateDawContext({ daw_name: e.target.value })}
+                      className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                    >
+                      <option value="">Select DAW (optional)...</option>
+                      {DAW_OPTIONS.filter(Boolean).map((daw) => (
+                        <option key={daw} value={daw}>
+                          {daw}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="daw-bus-routing"
+                      className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                    >
+                      Bus Routing / Gain Staging Notes
+                    </label>
+                    <input
+                      id="daw-bus-routing"
+                      data-testid="daw-bus-routing"
+                      type="text"
+                      value={dawContext.bus_routing}
+                      onChange={(e) => updateDawContext({ bus_routing: e.target.value })}
+                      placeholder="e.g., Drum Bus -> Glue Comp (-2 dB GR) -> Stereo Out"
+                      className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/65 focus:outline-none focus:border-[var(--accent-primary)]"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="daw-plugin-chain"
+                    className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                  >
+                    Active Mix-Bus / Mastering Plugin Chain Notes
+                  </label>
+                  <textarea
+                    id="daw-plugin-chain"
+                    data-testid="daw-plugin-chain"
+                    rows={2}
+                    value={dawContext.plugin_chain_notes}
+                    onChange={(e) => updateDawContext({ plugin_chain_notes: e.target.value })}
+                    placeholder="e.g., Pro-Q3 high-pass 30 Hz -> SSL Bus Comp 4:1 -> Pro-L2 ceiling -1.0 dBTP (bypassed for mix check)"
+                    className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/65 focus:outline-none focus:border-[var(--accent-primary)]"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-mono text-[var(--text-secondary)]">
+                  <span>
+                    Tag: <strong className="text-[var(--text-primary)]">{dawContext.source_tag}</strong>
+                    {dawContext.updated_at ? ` · Updated in session` : ' · Empty'}
+                  </span>
+                  {hasDawNotes && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onDawContextChange) {
+                          onDawContextChange(DEFAULT_DAW_CONTEXT);
+                        } else {
+                          setLocalDawContext(DEFAULT_DAW_CONTEXT);
+                        }
+                      }}
+                      className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 cursor-pointer"
+                    >
+                      Clear Session Notes
+                    </button>
+                  )}
+                </div>
+              </div>
+            </motion.div>
           )}
-        </section>
-      </div>
-    </MotionConfig>
+        </AnimatePresence>
+      </section>
+    </div>
   );
 };

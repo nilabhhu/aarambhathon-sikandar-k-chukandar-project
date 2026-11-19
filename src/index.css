@@ -4,42 +4,60 @@
 @layer base {
   :root {
     --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'Public Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
 
-    --surface-canvas: #FFFFFF;
-    --surface-subtle: #F7F9F8;
-    --surface-muted: #EFF3F1;
-    --text-primary: #18181B;
-    --text-secondary: #52525B;
-    --text-muted: #71717A;
-    --border-subtle: #E4E8E6;
-    --accent-sage: #2A6F64;
-    --accent-sage-hover: #21584F;
-    --accent-sage-soft: #EAF2F0;
+    /* Daylight Studio Design Tokens (Default Theme) */
+    --bg-canvas: #FAFAFA;
+    --bg-surface: #F5F5F7;
+    --bg-elevated: #FFFFFF;
+    --border-hairline: 1px solid rgba(24, 34, 32, 0.08);
+    --border-hairline-color: rgba(24, 34, 32, 0.08);
+    --border-active: 1px solid rgba(58, 114, 105, 0.35);
+    --border-active-color: rgba(58, 114, 105, 0.35);
+    --text-primary: #182220;
+    --text-secondary: #52605D;
+    --accent-primary: #3A7269;
+    --accent-primary-hover: #2E5C54;
+    --accent-soft: #EBF3F1;
+    --status-safe: #15803D;
+    --status-caution: #B45309;
+    --status-alert: #BE123C;
   }
 
   .dark {
-    --surface-canvas: #0F1413;
-    --surface-subtle: #161D1B;
-    --surface-muted: #1E2725;
-    --text-primary: #F4F6F5;
-    --text-secondary: #A1ABA8;
-    --text-muted: #717D79;
-    --border-subtle: #26312E;
-    --accent-sage: #459B8D;
-    --accent-sage-hover: #58B0A2;
-    --accent-sage-soft: #182926;
+    --bg-canvas: #0D1211;
+    --bg-surface: #141B19;
+    --bg-elevated: #1A2321;
+    --border-hairline: 1px solid rgba(242, 245, 244, 0.09);
+    --border-hairline-color: rgba(242, 245, 244, 0.09);
+    --border-active: 1px solid rgba(77, 165, 151, 0.45);
+    --border-active-color: rgba(77, 165, 151, 0.45);
+    --text-primary: #F2F5F4;
+    --text-secondary: #9BA8A4;
+    --accent-primary: #2F7B6F;
+    --accent-primary-hover: #398E80;
+    --accent-soft: #172B28;
+    --status-safe: #4ADE80;
+    --status-caution: #FBBF24;
+    --status-alert: #FB7185;
+  }
+
+  html {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
   }
 
   body {
     font-family: var(--font-sans);
-    background-color: var(--surface-canvas);
+    background-color: var(--bg-canvas);
     color: var(--text-primary);
+    line-height: 1.55;
   }
 
-  h1, h2, h3, h4, .font-display {
+  h1, h2, h3, .font-display {
     font-family: var(--font-display);
+    letter-spacing: -0.02em;
   }
 
   code, pre, .font-mono {
@@ -48,19 +66,58 @@
   }
 }
 
+/* Squircle Geometry & Daylight Studio Surfaces */
+.squircle-outer {
+  border-radius: 20px;
+  corner-shape: squircle;
+}
+
+.squircle-inner {
+  border-radius: 12px;
+  corner-shape: squircle;
+}
+
+.studio-canvas {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+.studio-surface {
+  background-color: var(--bg-surface);
+  border: var(--border-hairline);
+}
+
+.studio-elevated {
+  background-color: var(--bg-elevated);
+  border: var(--border-hairline);
+}
+
+.studio-active-border {
+  border: var(--border-active);
+}
+
+.studio-hairline-b {
+  border-bottom: var(--border-hairline);
+}
+
+.studio-hairline-t {
+  border-top: var(--border-hairline);
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
 
+/* 2.4s Equalizer DSP Progress Scanner Animations */
 @keyframes eqPulse {
   0% {
-    transform: scaleY(0.12);
+    transform: scaleY(0.14);
   }
   50% {
     transform: scaleY(0.95);
   }
   100% {
-    transform: scaleY(0.25);
+    transform: scaleY(0.24);
   }
 }
 
@@ -75,9 +132,62 @@
 
 .animate-eq-pulse {
   transform-origin: bottom;
-  animation: eqPulse 1.2s ease-in-out infinite alternate;
+  animation: eqPulse 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
 }
 
 .animate-scanline {
   animation: scanline 2.2s linear infinite;
+}
+
+/* Subtle Daylight Problem-Zone Focus Pulse & Flash */
+@keyframes zoneSoftPulse {
+  0%, 100% {
+    opacity: 0.14;
+  }
+  50% {
+    opacity: 0.24;
+  }
+}
+
+@keyframes zoneFocusFlash {
+  0% {
+    opacity: 0.42;
+  }
+  45% {
+    opacity: 0.14;
+  }
+  100% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes markerFloat {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+
+.animate-retro-zone-pulse {
+  animation: zoneSoftPulse 2.2s ease-in-out infinite;
+}
+
+.animate-retro-zone-flash {
+  animation: zoneFocusFlash 0.7s cubic-bezier(0.22, 1, 0.36, 1) 2;
+}
+
+.animate-retro-marker-bounce {
+  animation: markerFloat 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-eq-pulse,
+  .animate-scanline,
+  .animate-retro-zone-pulse,
+  .animate-retro-zone-flash,
+  .animate-retro-marker-bounce {
+    animation: none !important;
+  }
 }

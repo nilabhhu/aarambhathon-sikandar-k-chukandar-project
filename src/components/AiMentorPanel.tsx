@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   AiMentorResponse,
   AnalysisReport,
@@ -14,6 +15,7 @@ import {
   buildDeterministicClientMentorResponse,
 } from '../audio/phase5MentorLogic';
 import { requestAiMentorInterpretation } from '../services/apiService';
+import { TACTILE_TAP } from '../lib/motion';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -87,7 +89,6 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
       ...consent,
       external_ai_transfer_consent: true,
       ai_numerical_metrics_transfer_consent: true,
-      // Explicitly preserve Toggle B (direct audio) & Toggle C (training) as untouched/false
     });
   };
 
@@ -212,19 +213,19 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
     <section
       aria-label="Evidence-Bound AI Mix Mentor and Artist Vision"
       data-testid="ai-mentor-panel"
-      className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 space-y-5"
+      className="studio-elevated squircle-outer p-6 space-y-5"
     >
       {/* Header Row */}
-      <div className="flex flex-wrap items-start justify-between gap-4 pb-4 border-b border-zinc-200 dark:border-zinc-800">
+      <div className="flex flex-wrap items-start justify-between gap-4 pb-4 studio-hairline-b">
         <div>
-          <div className="flex items-center gap-2 text-[11px] font-mono text-[#3A7269] dark:text-teal-400 font-semibold">
+          <div className="flex items-center gap-2 text-[11px] font-mono text-[var(--accent-primary)] font-medium">
             <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span>PHASE 5 · EVIDENCE-BOUND MIX MENTOR (RULE 2 &amp; RULE 3)</span>
+            <span>Evidence-Bound Mix Mentor (Rules 2 &amp; 3)</span>
           </div>
-          <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mt-1">
+          <h2 className="text-lg font-bold text-[var(--text-primary)] mt-1">
             AI Mix Mentor &amp; Artist Vision Profile
           </h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+          <p className="text-xs text-[var(--text-secondary)] mt-0.5">
             Every coaching step cites measured DSP evidence IDs. Objective technical warnings are never suppressed for creative style.
           </p>
         </div>
@@ -234,10 +235,10 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <span
               data-testid="ai-mentor-mode-badge"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono border ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner text-xs font-mono border ${
                 isLiveGemini
-                  ? 'bg-[#3A7269]/10 text-[#3A7269] border-[#3A7269]/30 dark:bg-teal-950/50 dark:text-teal-300 dark:border-teal-800'
-                  : 'bg-[#F5F5F7] text-zinc-700 border-zinc-300 dark:bg-zinc-800 dark:text-zinc-200 dark:border-zinc-700'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent-primary)] border-[var(--border-active-color)]'
+                  : 'bg-[var(--bg-surface)] text-[var(--text-primary)] border-[var(--border-hairline-color)]'
               }`}
             >
               {isLiveGemini ? (
@@ -247,39 +248,40 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
                 </>
               ) : (
                 <>
-                  <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-[#3A7269] dark:text-teal-400" />
+                  <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-[var(--accent-primary)]" />
                   <span>Deterministic Offline Fallback</span>
                 </>
               )}
             </span>
 
             {toggleAEnabled && (
-              <button
+              <motion.button
                 type="button"
+                whileTap={TACTILE_TAP}
                 onClick={fetchLiveOrFallbackMentor}
                 disabled={isLoading}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-xs font-medium text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
                 <span>Refresh</span>
-              </button>
+              </motion.button>
             )}
           </div>
         )}
       </div>
 
       {/* Artist Vision Profile Selector (Multi-select) */}
-      <div className="rounded-lg border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 p-4 space-y-2.5">
+      <div className="squircle-inner studio-surface p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-            <Compass className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400" />
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[var(--text-primary)]">
+            <Compass className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
             <span>Artist Vision Profile (Optional Multi-Select)</span>
           </div>
           {artistVision.length > 0 && (
             <button
               type="button"
               onClick={() => onChangeArtistVision([])}
-              className="text-[11px] text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 underline underline-offset-2"
+              className="text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 cursor-pointer"
             >
               Clear Vision Tags
             </button>
@@ -294,28 +296,29 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
           {ARTIST_VISION_OPTIONS.map((opt) => {
             const active = artistVision.includes(opt.tag);
             return (
-              <button
+              <motion.button
                 key={opt.tag}
                 type="button"
+                whileTap={TACTILE_TAP}
                 onClick={() => toggleVisionTag(opt.tag)}
                 aria-pressed={active}
                 data-testid={`vision-pill-${opt.tag.toLowerCase()}`}
                 title={opt.shortHint}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 squircle-inner text-xs font-medium border transition-colors whitespace-nowrap cursor-pointer ${
                   active
-                    ? 'border-[#3A7269] bg-[#3A7269] text-white dark:border-teal-600 dark:bg-teal-700 font-semibold'
-                    : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:border-[#3A7269]'
+                    ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-white font-semibold'
+                    : 'border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--border-active-color)]'
                 }`}
               >
                 {opt.tag}
-              </button>
+              </motion.button>
             );
           })}
         </div>
 
-        <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+        <p className="text-[11px] text-[var(--text-secondary)]">
           Guides creative trade-offs (e.g., density vs. transient snap).{' '}
-          <strong className="text-zinc-700 dark:text-zinc-300">Rule 3:</strong> Objective technical warnings (True Peak &gt; -0.1 dBTP, clipping, negative phase) are never hidden.
+          <strong className="text-[var(--text-primary)]">Rule 3:</strong> Objective technical warnings (True Peak &gt; -0.1 dBTP, clipping, negative phase) are never hidden.
         </p>
       </div>
 
@@ -323,61 +326,63 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
       {!toggleAEnabled && !localOfflinePreview && (
         <div
           data-testid="ai-mentor-privacy-lock"
-          className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-[#F5F5F7] dark:bg-zinc-950/70 p-6 space-y-4"
+          className="squircle-inner studio-surface p-6 space-y-4"
         >
           <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shrink-0 text-[#3A7269] dark:text-teal-400">
+            <div className="w-9 h-9 squircle-inner studio-elevated flex items-center justify-center shrink-0 text-[var(--accent-primary)]">
               <Lock className="w-4 h-4" />
             </div>
             <div className="space-y-1.5">
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+              <h3 className="text-sm font-bold text-[var(--text-primary)]">
                 Privacy-First Lock: Zero Data Leaves Your Session by Default
               </h3>
-              <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed max-w-3xl">
-                Toggle A (Metrics-Only AI Mentor) is currently <strong>OFF</strong>. When enabled, MixLearn Studio transmits <strong>only sanitized numerical DSP JSON</strong> (LUFS, True Peak, spectral bands, issue IDs, Artist Vision, and optional DAW notes)—<strong>0 raw audio bytes</strong>. Ephemeral API processing is strictly separate from model training (Toggle C remains <strong>OFF</strong> by default).
+              <p className="text-xs text-[var(--text-secondary)] leading-relaxed max-w-3xl">
+                Toggle A (Metrics-Only AI Mentor) is currently <strong className="text-[var(--text-primary)]">OFF</strong>. When enabled, MixLearn Studio transmits <strong className="text-[var(--text-primary)]">only sanitized numerical DSP JSON</strong> (LUFS, True Peak, spectral bands, issue IDs, Artist Vision, and optional DAW notes)—<strong className="text-[var(--text-primary)]">0 raw audio bytes</strong>. Ephemeral API processing is strictly separate from model training (Toggle C remains <strong className="text-[var(--text-primary)]">OFF</strong> by default).
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={handleEnableToggleA}
               data-testid="enable-toggle-a-btn"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3A7269] hover:bg-[#2F5E56] text-white text-xs font-semibold transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold text-left transition-colors cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
               <span>Enable Metrics-Only AI Mentor (JSON Only, Zero Audio)</span>
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={handleViewOfflineGuidance}
               data-testid="view-offline-guidance-btn"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-medium transition-colors whitespace-nowrap"
+              className="inline-flex items-center gap-2 px-4 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-xs font-medium text-left transition-colors cursor-pointer"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400" />
+              <ShieldCheck className="w-3.5 h-3.5 shrink-0 text-[var(--accent-primary)]" />
               <span>View Deterministic Offline Guidance</span>
-            </button>
+            </motion.button>
           </div>
         </div>
       )}
 
-      {/* Error State (e.g., Explicit HTTP 403 or HTTP 429 from FastAPI) */}
+      {/* Error State */}
       {errorMessage && (
         <div
           role="alert"
-          className="rounded-lg border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 p-3.5 text-xs text-rose-900 dark:text-rose-200 flex items-start gap-2"
+          className="squircle-inner border border-[var(--status-alert)]/35 bg-rose-50/80 dark:bg-rose-950/35 p-3.5 text-xs text-rose-900 dark:text-rose-200 flex items-start gap-2"
         >
-          <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+          <AlertTriangle className="w-4 h-4 text-[var(--status-alert)] shrink-0 mt-0.5" />
           <span>{errorMessage}</span>
         </div>
       )}
 
       {/* Loading Indicator */}
       {isLoading && (
-        <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 p-6 flex items-center gap-3 text-xs text-zinc-600 dark:text-zinc-400">
-          <RefreshCw className="w-4 h-4 text-[#3A7269] dark:text-teal-400 animate-spin shrink-0" />
+        <div className="squircle-inner studio-surface p-6 flex items-center gap-3 text-xs text-[var(--text-secondary)]">
+          <RefreshCw className="w-4 h-4 text-[var(--accent-primary)] animate-spin shrink-0" />
           <span>
             Generating evidence-bound coaching from sanitized DSP JSON (0 raw audio bytes transmitted)...
           </span>
@@ -388,19 +393,19 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
       {!isLoading && mentor && (
         <div className="space-y-4">
           {/* Summary & Vision Alignment */}
-          <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-950/60 p-4 space-y-2.5">
-            <p className="text-xs text-zinc-800 dark:text-zinc-200 leading-relaxed font-medium">
+          <div className="squircle-inner studio-surface p-4 space-y-2.5">
+            <p className="text-xs text-[var(--text-primary)] leading-relaxed font-medium">
               {mentor.summary}
             </p>
             <p
               data-testid="ai-mentor-vision-note"
-              className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed pt-2 border-t border-zinc-200/80 dark:border-zinc-800"
+              className="text-xs text-[var(--text-secondary)] leading-relaxed pt-2.5 studio-hairline-t"
             >
-              <strong className="text-zinc-800 dark:text-zinc-200">Vision Alignment: </strong>
+              <strong className="text-[var(--text-primary)]">Vision Alignment: </strong>
               {mentor.vision_alignment_note}
             </p>
             {mentor.mentor_mode === 'deterministic_fallback' && mentor.fallback_reason && (
-              <p className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 pt-1">
+              <p className="text-[11px] font-mono text-[var(--text-secondary)] pt-1">
                 Mode detail: {mentor.fallback_reason}
               </p>
             )}
@@ -417,33 +422,34 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
                 <article
                   key={`${step.evidence_id}-${index}`}
                   data-testid="mentor-step-card"
-                  className={`rounded-lg border p-4 space-y-3 transition-colors ${
+                  className={`squircle-inner border p-4 space-y-3 transition-colors ${
                     isSelected
-                      ? 'border-[#3A7269] dark:border-teal-500 bg-[#3A7269]/[0.03] dark:bg-teal-950/20'
-                      : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950/40'
+                      ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/50'
+                      : 'border-[var(--border-hairline-color)] bg-[var(--bg-elevated)]'
                   }`}
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-mono font-bold tabular-nums text-zinc-500 dark:text-zinc-400">
+                      <span className="font-mono font-bold tabular-nums text-[var(--text-secondary)]">
                         {String(index + 1).padStart(2, '0')}
                       </span>
                       <span
-                        className={`font-mono text-[11px] font-semibold px-2 py-0.5 rounded border ${
+                        className={`font-mono text-[11px] font-semibold px-2 py-0.5 squircle-inner border ${
                           isObjective
-                            ? 'text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900'
-                            : 'text-[#3A7269] dark:text-teal-300 bg-[#3A7269]/10 dark:bg-teal-950/40 border-[#3A7269]/25 dark:border-teal-900'
+                            ? 'text-[var(--status-alert)] bg-rose-50/80 dark:bg-rose-950/40 border-[var(--status-alert)]/30'
+                            : 'text-[var(--accent-primary)] bg-[var(--accent-soft)] border-[var(--border-active-color)]'
                         }`}
                       >
                         {isObjective ? 'Technical Warning' : 'Stylistic Note'}
                       </span>
-                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                      <h3 className="text-sm font-bold text-[var(--text-primary)]">
                         {step.title}
                       </h3>
                     </div>
 
-                    <button
+                    <motion.button
                       type="button"
+                      whileTap={canJumpToIssue ? TACTILE_TAP : undefined}
                       onClick={() => handleEvidenceClick(step.evidence_id)}
                       data-testid={`mentor-evidence-${step.evidence_id}`}
                       title={
@@ -451,47 +457,47 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
                           ? 'Click to highlight this DSP issue and cue waveform marker'
                           : 'Measured DSP evidence identifier'
                       }
-                      className={`inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-mono border transition-colors whitespace-nowrap ${
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 squircle-inner text-[11px] font-mono border transition-colors whitespace-nowrap ${
                         canJumpToIssue
-                          ? 'border-[#3A7269]/40 bg-[#3A7269]/[0.06] text-[#3A7269] dark:text-teal-300 hover:bg-[#3A7269]/15 cursor-pointer'
-                          : 'border-zinc-200 dark:border-zinc-700 bg-[#F5F5F7] dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 cursor-default'
+                          ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)] text-[var(--accent-primary)] hover:opacity-85 cursor-pointer'
+                          : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-default'
                       }`}
                     >
                       <span>evidence: {step.evidence_id}</span>
-                    </button>
+                    </motion.button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5 text-xs">
                     <div className="space-y-1.5">
-                      <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed">
-                        <strong className="text-zinc-900 dark:text-zinc-100">What happened: </strong>
+                      <p className="text-[var(--text-secondary)] leading-relaxed">
+                        <strong className="text-[var(--text-primary)]">What happened: </strong>
                         {step.what_happened}
                       </p>
-                      <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                        <strong className="text-zinc-800 dark:text-zinc-200">Why it matters: </strong>
+                      <p className="text-[var(--text-secondary)] leading-relaxed">
+                        <strong className="text-[var(--text-primary)]">Why it matters: </strong>
                         {step.why_it_matters}
                       </p>
                     </div>
 
-                    <div className="space-y-2 rounded-md border border-zinc-200/80 dark:border-zinc-800 bg-[#FAFAFA] dark:bg-zinc-900/70 p-3">
-                      <p className="text-zinc-700 dark:text-zinc-300 leading-relaxed flex items-start gap-1.5">
-                        <Headphones className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400 shrink-0 mt-0.5" />
+                    <div className="space-y-2 squircle-inner studio-surface p-3.5">
+                      <p className="text-[var(--text-secondary)] leading-relaxed flex items-start gap-1.5">
+                        <Headphones className="w-3.5 h-3.5 text-[var(--accent-primary)] shrink-0 mt-0.5" />
                         <span>
-                          <strong className="text-zinc-900 dark:text-zinc-100">Listen for: </strong>
+                          <strong className="text-[var(--text-primary)]">Listen for: </strong>
                           {step.listen_prompt}
                         </span>
                       </p>
-                      <p className="text-teal-950 dark:text-teal-200 leading-relaxed flex items-start gap-1.5">
-                        <Wrench className="w-3.5 h-3.5 text-[#3A7269] dark:text-teal-400 shrink-0 mt-0.5" />
+                      <p className="text-[var(--text-primary)] leading-relaxed flex items-start gap-1.5">
+                        <Wrench className="w-3.5 h-3.5 text-[var(--accent-primary)] shrink-0 mt-0.5" />
                         <span>
-                          <strong className="text-[#3A7269] dark:text-teal-300">What to try: </strong>
+                          <strong className="text-[var(--accent-primary)]">What to try: </strong>
                           {step.what_to_try}
                         </span>
                       </p>
-                      <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed flex items-start gap-1.5">
-                        <Target className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-0.5" />
+                      <p className="text-[var(--text-secondary)] leading-relaxed flex items-start gap-1.5">
+                        <Target className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0 mt-0.5" />
                         <span>
-                          <strong className="text-zinc-800 dark:text-zinc-200">Recheck target: </strong>
+                          <strong className="text-[var(--text-primary)]">Recheck target: </strong>
                           {step.recheck_target}
                         </span>
                       </p>
@@ -505,10 +511,10 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
           {/* Transparent Privacy Audit Footer Strip */}
           <div
             data-testid="ai-privacy-audit-strip"
-            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-[#F5F5F7] dark:bg-zinc-950/70 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono tabular-nums text-zinc-600 dark:text-zinc-400"
+            className="squircle-inner studio-surface px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-[11px] font-mono tabular-nums text-[var(--text-secondary)]"
           >
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span className="inline-flex items-center gap-1 text-[#3A7269] dark:text-teal-400 font-semibold">
+              <span className="inline-flex items-center gap-1 text-[var(--status-safe)] font-semibold">
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 <span>
                   Raw Audio Sent: {mentor.privacy_audit.raw_audio_sent_to_ai ? 'True' : '0 bytes (False)'}
@@ -516,19 +522,19 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
               </span>
               <span>
                 Toggle A (Metrics JSON):{' '}
-                <strong className="text-zinc-800 dark:text-zinc-200">
+                <strong className="text-[var(--text-primary)]">
                   {mentor.privacy_audit.external_ai_enabled ? 'ON' : 'OFF'}
                 </strong>
               </span>
               <span>
                 Toggle B (Direct Audio):{' '}
-                <strong className="text-zinc-800 dark:text-zinc-200">
+                <strong className="text-[var(--text-primary)]">
                   {mentor.privacy_audit.direct_audio_inspection_enabled ? 'ON' : 'OFF'}
                 </strong>
               </span>
               <span>
                 Toggle C (Model Training):{' '}
-                <strong className="text-zinc-800 dark:text-zinc-200">
+                <strong className="text-[var(--text-primary)]">
                   {mentor.privacy_audit.training_opt_in ? 'True' : 'False'}
                 </strong>
               </span>
@@ -539,7 +545,7 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleEnableToggleA}
-                  className="text-[#3A7269] dark:text-teal-400 hover:underline font-semibold"
+                  className="text-[var(--accent-primary)] hover:underline font-semibold cursor-pointer"
                 >
                   Enable Metrics-Only Gemini AI (Toggle A)
                 </button>
@@ -547,7 +553,7 @@ export const AiMentorPanel: React.FC<AiMentorPanelProps> = ({
                 <button
                   type="button"
                   onClick={handleDisableToggleA}
-                  className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 underline underline-offset-2"
+                  className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 cursor-pointer"
                 >
                   Lock &amp; Turn Toggle A Off
                 </button>

@@ -4,6 +4,13 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { motion, MotionConfig } from 'motion/react';
+import {
+  STUDIO_EASE,
+  STUDIO_SPRING,
+  TACTILE_TAP,
+  VIEWPORT_REVEAL,
+} from './lib/motion';
 import {
   AnalysisReport,
   ArtistVisionTag,
@@ -19,6 +26,7 @@ import { generatePhase1DemoReport, GENRE_LABELS, MIX_STAGE_LABELS } from './cont
 import { checkBackendHealth, analyzeAudioWithDsp } from './services/apiService';
 import { StudioAudioProvider } from './audio/StudioAudioContext';
 import { studioAudioEngine } from './audio/StudioAudioEngine';
+import { synthesizeDemoTrackWavFile } from './audio/demoTrackSynthesizer';
 import { ConsentGatePanel } from './components/ConsentGatePanel';
 import { SimpleMixCheckView } from './components/SimpleMixCheckView';
 import { AdvancedMixCheckView } from './components/AdvancedMixCheckView';
@@ -256,6 +264,37 @@ function MixLearnStudioShell() {
     runMixAnalysis(fileToAnalyze || selectedFile, genre, mixStage);
   };
 
+  // Explicit user-triggered "LOAD DEMO TRACK" action (synthesizes playable stereo WAV + calibrated 2-zone scan)
+  const handleLoadDemoTrack = async () => {
+    const demoFile = synthesizeDemoTrackWavFile('checkmix_demo_track_24bit.wav');
+    setSelectedFile(demoFile);
+    setReportError(null);
+    setRevisionComparison(null);
+    studioAudioEngine.clearRevisionV2();
+
+    const demoReport = generatePhase1DemoReport({
+      interface_mode: route === 'advanced' ? 'advanced' : 'simple',
+      genre,
+      mix_stage: mixStage,
+      consent_state: consent,
+      custom_filename: demoFile.name,
+      custom_duration_sec: 4.0,
+      custom_sample_rate: 44100,
+      custom_file_size_bytes: demoFile.size,
+    });
+
+    setActiveReport(demoReport);
+    setReportSource('offline_fallback');
+    setAnalysisStage('complete');
+    setIsAnalyzing(false);
+
+    // Decode playable synthesized WAV in StudioAudioEngine so transport, waveform, and FFT stay synchronized
+    await studioAudioEngine.loadPrimaryFile(
+      demoFile,
+      demoReport.measurements.integrated_loudness.value
+    );
+  };
+
   // Manual or on-demand backend health check
   const handleCheckBackendHealth = async () => {
     setBackendStatus('checking');
@@ -267,126 +306,126 @@ function MixLearnStudioShell() {
     }
   };
 
-  return (
-    <div className="min-h-screen flex flex-col bg-[#FAFAFA] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors">
-      {/* Strict 3-Zone Top Bar Contract */}
-      <header className="flex items-center justify-between gap-8 px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950">
-        {/* Zone 1: Wordmark */}
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            navigateTo('home');
-          }}
-          className="text-lg font-bold tracking-tight text-zinc-900 dark:text-zinc-100 whitespace-nowrap shrink-0 font-display"
-        >
-          MixLearn Studio
-        </a>
+  const navItems: Array<{ id: ActiveRoute; href: string; label: string; shortLabel: string }> = [
+    { id: 'home', href: '/', label: 'Overview', shortLabel: 'Overview' },
+    { id: 'simple', href: '/simple', label: 'Simple Mix Check', shortLabel: 'Simple' },
+    { id: 'advanced', href: '/advanced', label: 'Advanced Mix Check', shortLabel: 'Advanced' },
+    { id: 'architecture', href: '/architecture', label: 'System Architecture', shortLabel: 'System' },
+  ];
 
-        {/* Zone 2: Navigation Links */}
-        <nav
-          aria-label="Primary Navigation"
-          className="hidden md:flex items-center gap-6 text-sm font-medium text-zinc-600 dark:text-zinc-400"
-        >
+  return (
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-200">
+      {/* Studio Top Navigation Bar — 3-Zone Contract with Sliding layoutId Pill Track */}
+      <header className="sticky top-0 z-40 bg-[var(--bg-elevated)]/95 backdrop-blur-sm studio-hairline-b">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 px-4 sm:px-6 py-3.5">
+          {/* Zone 1: Wordmark */}
           <a
             href="/"
             onClick={(e) => {
               e.preventDefault();
               navigateTo('home');
             }}
-            className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
-              route === 'home'
-                ? 'text-[#3A7269] dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
-                : ''
-            }`}
+            className="text-lg font-bold tracking-[-0.02em] text-[var(--text-primary)] whitespace-nowrap shrink-0 font-display"
           >
-            Overview
+            MixLearn Studio
           </a>
-          <a
-            href="/simple"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo('simple');
-            }}
-            className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
-              route === 'simple'
-                ? 'text-[#3A7269] dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
-                : ''
-            }`}
-          >
-            Simple Mix Check
-          </a>
-          <a
-            href="/advanced"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo('advanced');
-            }}
-            className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
-              route === 'advanced'
-                ? 'text-[#3A7269] dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
-                : ''
-            }`}
-          >
-            Advanced Mix Check
-          </a>
-          <a
-            href="/architecture"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo('architecture');
-            }}
-            className={`hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors whitespace-nowrap shrink-0 ${
-              route === 'architecture'
-                ? 'text-[#3A7269] dark:text-teal-400 underline underline-offset-8 decoration-2 font-semibold'
-                : ''
-            }`}
-          >
-            System Architecture
-          </a>
-        </nav>
 
-        {/* Zone 3: Primary Action */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            type="button"
-            onClick={() => navigateTo(route === 'simple' ? 'advanced' : 'simple')}
-            className="px-4 py-2 text-xs font-medium text-white bg-[#3A7269] hover:bg-[#2F5E56] dark:bg-teal-700 dark:hover:bg-teal-600 rounded-md transition-colors whitespace-nowrap shrink-0"
+          {/* Zone 2: Recessed #F5F5F7 Segmented Mode Track with layoutId="workspace-mode-pill" */}
+          <nav
+            aria-label="Primary Navigation"
+            className="hidden md:flex items-center gap-1 p-1 bg-[var(--bg-surface)] squircle-inner border border-[var(--border-hairline-color)]"
           >
-            {route === 'simple' ? 'Open Advanced Check' : 'Start Simple Mix Check'}
-          </button>
+            {navItems.map((item) => {
+              const isActive = route === item.id;
+              return (
+                <a
+                  key={item.id}
+                  href={item.href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigateTo(item.id);
+                  }}
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`relative px-3.5 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? 'text-white font-semibold'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {isActive && (
+                    <motion.span
+                      layoutId="workspace-mode-pill"
+                      transition={STUDIO_SPRING}
+                      className="absolute inset-0 bg-[var(--accent-primary)] squircle-inner"
+                    />
+                  )}
+                  <span className="relative z-10">{item.label}</span>
+                </a>
+              );
+            })}
+          </nav>
+
+          {/* Zone 3: Single Primary Action */}
+          <div className="flex items-center gap-2 shrink-0">
+            <motion.button
+              type="button"
+              whileTap={TACTILE_TAP}
+              onClick={() => navigateTo(route === 'simple' ? 'advanced' : 'simple')}
+              className="px-4 py-2 text-xs font-semibold text-white bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {route === 'simple' ? 'Open Advanced Check' : 'Start Simple Check'}
+            </motion.button>
+          </div>
         </div>
       </header>
 
-      {/* Secondary Workspace Context & Theme Toolbar */}
-      <div className="border-b border-zinc-200 dark:border-zinc-800 bg-[#F5F5F7] dark:bg-zinc-900/70 px-6 py-2.5">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-600 dark:text-zinc-400">
-          <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums">
-            <span className="font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 5 · AI MENTOR &amp; PRIVACY CONTROLS
-            </span>
-            <span aria-hidden="true">·</span>
-            <span>SHARED ENGINE CONTRACT v{activeReport?.schema_version || '2.0.0'}</span>
-            <span aria-hidden="true">·</span>
-            <span>GENRE: {GENRE_LABELS[genre]}</span>
-            <span aria-hidden="true">·</span>
-            <span>STAGE: {MIX_STAGE_LABELS[mixStage].title}</span>
+      {/* Ultra-Clean Single-Line Studio Context Sub-Header */}
+      <div className="bg-[var(--bg-surface)] studio-hairline-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--text-secondary)]">
+          <div className="flex items-center gap-2 font-mono tabular-nums min-w-0 truncate">
+            <span className="truncate">{GENRE_LABELS[genre]}</span>
+            <span aria-hidden="true" className="opacity-40">·</span>
+            <span className="whitespace-nowrap shrink-0">{MIX_STAGE_LABELS[mixStage].title}</span>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* Engine Connection Status */}
+          <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
+            {/* Mobile Compact Route Switcher */}
+            <nav
+              aria-label="Mobile Navigation"
+              className="flex md:hidden items-center gap-1 p-0.5 bg-[var(--bg-elevated)] squircle-inner border border-[var(--border-hairline-color)] max-w-full overflow-x-auto"
+            >
+              {navItems.map((item) => {
+                const isActive = route === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navigateTo(item.id)}
+                    className={`px-2 py-1 squircle-inner text-[11px] font-medium whitespace-nowrap transition-colors ${
+                      isActive
+                        ? 'bg-[var(--accent-primary)] text-white font-semibold'
+                        : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {item.shortLabel}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Live FastAPI DSP Engine Status Pill */}
             <div
               data-testid="engine-status-indicator"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono border ${
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner text-[11px] font-mono tabular-nums whitespace-nowrap shrink-0 ${
                 backendStatus === 'online'
-                  ? 'bg-[#3A7269]/10 text-[#3A7269] border-[#3A7269]/25 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800'
-                  : 'bg-white text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
+                  ? 'bg-[var(--accent-soft)] text-[var(--accent-primary)] border border-[var(--border-active-color)]'
+                  : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-hairline-color)]'
               }`}
             >
-              <Server className="w-3.5 h-3.5 shrink-0" />
+              <Server className="w-3 h-3 shrink-0" />
               <span>
                 {backendStatus === 'checking'
-                  ? 'Engine: Connecting to DSP...'
+                  ? 'Engine: Connecting...'
                   : backendStatus === 'online'
                   ? 'Engine: FastAPI DSP (Online)'
                   : 'Engine: Local Web Audio'}
@@ -404,213 +443,291 @@ function MixLearnStudioShell() {
               </button>
             </div>
 
-            {/* Mobile route switcher */}
-            <div className="flex md:hidden items-center gap-1">
-              {(['home', 'simple', 'advanced', 'architecture'] as ActiveRoute[]).map((r) => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => navigateTo(r)}
-                  className={`px-2 py-1 rounded text-xs font-medium capitalize ${
-                    route === r
-                      ? 'bg-[#3A7269] text-white'
-                      : 'text-zinc-700 dark:text-zinc-300'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-
-            <button
+            {/* Light / Dark Studio Theme Toggle */}
+            <motion.button
               type="button"
+              whileTap={TACTILE_TAP}
               onClick={() => setDarkMode((d) => !d)}
               aria-label={darkMode ? 'Switch to Default Light Mode' : 'Switch to Secondary Dark Mode'}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors whitespace-nowrap shrink-0"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors whitespace-nowrap shrink-0 text-[11px] font-medium cursor-pointer"
             >
               {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
               <span>{darkMode ? 'Light' : 'Dark'}</span>
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
 
       {/* Main Content Viewport */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10">
         {route === 'home' && (
-          <div className="space-y-10">
-            {/* Hero Section */}
-            <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-8">
-              <div className="max-w-4xl">
-                <p className="text-xs font-mono text-[#3A7269] dark:text-teal-400 font-semibold">
-                  PRIVACY-FIRST AUDIO ENGINEERING EDUCATION · PHASE 5 AI MENTOR &amp; PRIVACY CONTROLS
-                </p>
-                <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-2 text-balance">
-                  Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.
-                </h1>
-                <p className="text-base text-zinc-600 dark:text-zinc-400 mt-3 leading-relaxed">
-                  Examine your mixes with mathematical DSP measurements as the single source of truth, inspect user-uploaded original stems for potential spectral masking, verify v1 → v2 revision improvements, and unlock consent-gated evidence-bound AI coaching.
-                </p>
-                <div className="mt-6 flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => navigateTo('simple')}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md bg-[#3A7269] hover:bg-[#2F5E56] text-white text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <span>Open Simple Mix Check (Beginners)</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigateTo('advanced')}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 hover:bg-[#F5F5F7] dark:hover:bg-zinc-800 text-zinc-900 dark:text-zinc-100 text-sm font-medium transition-colors whitespace-nowrap shrink-0"
-                  >
-                    <span>Open Advanced Mix Check (Workbench)</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => navigateTo('architecture')}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md text-[#3A7269] dark:text-teal-400 hover:underline text-sm font-medium whitespace-nowrap shrink-0"
-                  >
-                    <span>Inspect System Architecture</span>
-                  </button>
-                </div>
-              </div>
-            </section>
+          <div className="space-y-12">
+            {/* Editorial Acoustic-Engineering Hero */}
+            <motion.section
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: STUDIO_EASE }}
+              className="studio-elevated squircle-outer p-7 sm:p-10 lg:p-12"
+            >
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+                <div className="lg:col-span-8 space-y-5">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-[var(--accent-primary)] font-medium">
+                    <span>Acoustic Diagnostics Workbench</span>
+                    <span aria-hidden="true" className="opacity-40">·</span>
+                    <span className="text-[var(--text-secondary)]">ITU-R BS.1770-4 &amp; EBU R128</span>
+                  </div>
 
-            {/* Two Interfaces Sharing One Technical Analysis Engine */}
+                  <h1 className="text-3xl sm:text-4xl lg:text-[2.65rem] font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)] text-balance">
+                    Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.
+                  </h1>
+
+                  <p className="text-sm sm:text-base text-[var(--text-secondary)] max-w-2xl leading-[1.6]">
+                    Measure every bounce with mathematical DSP as the single source of truth. Inspect tonal balance against genre curves, audit user-uploaded original stems for spectral masking, verify v1 to v2 revision improvements, and unlock consent-gated coaching grounded strictly in measured evidence.
+                  </p>
+
+                  <div className="pt-2 flex flex-wrap items-center gap-3">
+                    <motion.button
+                      type="button"
+                      whileTap={TACTILE_TAP}
+                      onClick={() => navigateTo('simple')}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <span>Open Simple Mix Check</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </motion.button>
+                    <motion.button
+                      type="button"
+                      whileTap={TACTILE_TAP}
+                      onClick={() => navigateTo('advanced')}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <span>Open Advanced Workbench</span>
+                    </motion.button>
+                    <button
+                      type="button"
+                      onClick={() => navigateTo('architecture')}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-[var(--accent-primary)] hover:underline underline-offset-4 text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
+                    >
+                      <span>System Architecture</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Right Editorial Acoustic Specification Ledger */}
+                <aside
+                  aria-label="Measurement Engine Specifications"
+                  className="lg:col-span-4 studio-surface squircle-inner p-5 space-y-4"
+                >
+                  <div className="text-xs font-mono text-[var(--text-secondary)] pb-2.5 studio-hairline-b flex items-center justify-between">
+                    <span>Reference Calibration</span>
+                    <span className="text-[var(--accent-primary)] font-medium">v{activeReport?.schema_version || '2.0.0'}</span>
+                  </div>
+                  <dl className="space-y-3 text-xs">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--text-secondary)]">Loudness Standard</dt>
+                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">ITU-R BS.1770-4</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--text-secondary)]">True Peak Oversampling</dt>
+                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">4× Polyphase ISP</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--text-secondary)]">Spectral Resolution</dt>
+                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">6-Band Welch PSD</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <dt className="text-[var(--text-secondary)]">Stem Policy (Rule 1)</dt>
+                      <dd className="font-mono font-medium text-[var(--status-safe)]">Original Stems Only</dd>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 pt-2.5 studio-hairline-t">
+                      <dt className="text-[var(--text-secondary)]">Default AI Training</dt>
+                      <dd className="font-mono font-medium text-[var(--text-primary)]">Disabled (False)</dd>
+                    </div>
+                  </dl>
+                </aside>
+              </div>
+            </motion.section>
+
+            {/* Asymmetric Two-Column Split: Simple Mix Check vs. Advanced Workbench */}
             <section
               aria-label="Dual Interface Architecture"
-              className="grid grid-cols-1 md:grid-cols-2 gap-6"
+              className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch"
             >
-              {/* Interface 1 Card */}
-              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                    <span>INTERFACE 01 · BEGINNER WORKFLOW</span>
-                    <span>ROUTE: /simple</span>
+              {/* Left (5 cols): Simple Mix Check */}
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={VIEWPORT_REVEAL}
+                transition={{ duration: 0.4, ease: STUDIO_EASE }}
+                className="lg:col-span-5 studio-elevated squircle-outer p-7 flex flex-col justify-between"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs font-mono text-[var(--text-secondary)]">
+                    <span>01 · Focused Guidance</span>
+                    <span>/simple</span>
                   </div>
-                  <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mt-2 flex items-center gap-2">
-                    <BookOpen className="w-5 h-5 text-[#3A7269] dark:text-teal-400" />
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2.5">
+                    <BookOpen className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
                     <span>Simple Mix Check</span>
                   </h2>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                    Designed for independent musicians who want clear, actionable feedback paired with an intuitive spectral tonal balance view.
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                    Built for independent artists who want a distraction-free read on loudness, headroom, tonal balance, and the top three DAW adjustments to make next.
                   </p>
-                  <ul className="mt-4 space-y-2 text-xs text-zinc-700 dark:text-zinc-300">
-                    <li>1. Select music genre and Unmastered Mix or Final Master stage.</li>
-                    <li>2. View 4 core diagnostics and your 6-band spectral tonal balance vs. genre target.</li>
-                    <li>3. Follow prioritized plain-language DAW fixes with clickable issue marker pins.</li>
-                    <li>4. Keeps objective technical warnings distinct from stylistic suggestions.</li>
-                  </ul>
+                  <ol className="space-y-2.5 pt-2 text-xs text-[var(--text-secondary)] border-t border-[var(--border-hairline-color)]">
+                    <li className="flex items-baseline gap-2.5">
+                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">01</span>
+                      <span>Choose your genre and Unmastered Mix or Final Master stage.</span>
+                    </li>
+                    <li className="flex items-baseline gap-2.5">
+                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">02</span>
+                      <span>Review 4 core diagnostics and your 6-band spectral curve vs. genre envelope.</span>
+                    </li>
+                    <li className="flex items-baseline gap-2.5">
+                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">03</span>
+                      <span>Work through top-3 plain-language DAW fixes with collapsible learning guides.</span>
+                    </li>
+                  </ol>
                 </div>
-                <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <button
+
+                <div className="mt-7 pt-5 studio-hairline-t">
+                  <motion.button
                     type="button"
+                    whileTap={TACTILE_TAP}
                     onClick={() => navigateTo('simple')}
-                    className="w-full py-2.5 px-4 rounded-md bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 text-xs font-semibold transition-colors"
+                    className="w-full py-2.5 px-4 squircle-inner bg-[var(--text-primary)] text-[var(--bg-elevated)] hover:opacity-90 text-xs font-semibold transition-opacity cursor-pointer"
                   >
                     Launch Simple Mix Check
-                  </button>
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
 
-              {/* Interface 2 Card */}
-              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6 flex flex-col justify-between">
-                <div>
-                  <div className="flex items-center justify-between text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                    <span>INTERFACE 02 · STUDIO WORKBENCH</span>
-                    <span>ROUTE: /advanced</span>
+              {/* Right (7 cols): Advanced Mix Check Workbench */}
+              <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={VIEWPORT_REVEAL}
+                transition={{ duration: 0.4, delay: 0.08, ease: STUDIO_EASE }}
+                className="lg:col-span-7 studio-elevated squircle-outer p-7 flex flex-col justify-between"
+              >
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between text-xs font-mono text-[var(--text-secondary)]">
+                    <span>02 · Full Studio Workbench</span>
+                    <span>/advanced</span>
                   </div>
-                  <h2 className="text-xl font-semibold text-zinc-900 dark:text-zinc-100 mt-2 flex items-center gap-2">
-                    <Sliders className="w-5 h-5 text-[#3A7269] dark:text-teal-400" />
+                  <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2.5">
+                    <Sliders className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
                     <span>Advanced Mix Check</span>
                   </h2>
-                  <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2 leading-relaxed">
-                    Full studio playback workbench with loudness-matched Reference A/B, Translation Lab filters, and synchronized time-domain diagnostics.
+                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
+                    Precision playback and diagnostic console sharing the exact same DSP engine—adding sample-locked Reference A/B switching, Translation Lab filters, multitrack stem overlap matrices, and v1 to v2 revision delta verification.
                   </p>
-                  <ul className="mt-4 space-y-2 text-xs text-zinc-700 dark:text-zinc-300">
-                    <li>1. Sample-locked Mix A / Reference B &amp; Revision v2 loudness-matched switching.</li>
-                    <li>2. Equal-power Stereo/Mono folding and Smartphone/Laptop linear filter approximations.</li>
-                    <li>3. 2–8 original user stem overlap matrix (Rule 1: zero AI stem separation) &amp; DAW context notes.</li>
-                    <li>4. v1 → v2 revision delta tracker verifying Improved, Unchanged, and Regressed findings.</li>
-                  </ul>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 border-t border-[var(--border-hairline-color)] text-xs text-[var(--text-secondary)]">
+                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
+                      <div className="font-semibold text-[var(--text-primary)]">Loudness-Matched A/B &amp; Lab</div>
+                      <p>15ms click-free Mix A / Reference B switching, equal-power Mono fold, and Phone/Laptop filter approximations.</p>
+                    </div>
+                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
+                      <div className="font-semibold text-[var(--text-primary)]">Time-Domain &amp; Phase Sync</div>
+                      <p>60fps canvas waveform markers linked to Short-Term LUFS trajectory and live Stereo Phase Correlation meter.</p>
+                    </div>
+                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
+                      <div className="font-semibold text-[var(--text-primary)]">Original Stems Matrix (Rule 1)</div>
+                      <p>Upload 2–8 genuine DAW stems to measure pairwise 6-band spectral overlap—zero AI stem fabrication.</p>
+                    </div>
+                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
+                      <div className="font-semibold text-[var(--text-primary)]">v1 → v2 Revision Deltas</div>
+                      <p>Track exact LUFS, True Peak, LRA, phase, and tonal shifts to confirm every finding improved cleanly.</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-6 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <button
+
+                <div className="mt-7 pt-5 studio-hairline-t">
+                  <motion.button
                     type="button"
+                    whileTap={TACTILE_TAP}
                     onClick={() => navigateTo('advanced')}
-                    className="w-full py-2.5 px-4 rounded-md bg-[#3A7269] hover:bg-[#2F5E56] text-white text-xs font-semibold transition-colors"
+                    className="w-full py-2.5 px-4 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors cursor-pointer"
                   >
-                    Launch Advanced Mix Check
-                  </button>
+                    Launch Advanced Workbench
+                  </motion.button>
                 </div>
-              </div>
+              </motion.div>
             </section>
 
             {/* Five-Tier Consent & Privacy Gate */}
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} />
 
-            {/* Absolute Product Rules Summary */}
-            <section
+            {/* Ten Non-Negotiable Product Rules — Clean Editorial Ledger */}
+            <motion.section
               aria-label="Ten Absolute Product Rules"
-              className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-6"
+              initial={{ opacity: 0, y: 12 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={VIEWPORT_REVEAL}
+              transition={{ duration: 0.4, ease: STUDIO_EASE }}
+              className="studio-elevated squircle-outer p-7"
             >
-              <div className="flex items-center gap-2 text-xs font-mono text-zinc-500 dark:text-zinc-400">
-                <Shield className="w-4 h-4 text-[#3A7269] dark:text-teal-400" />
-                <span>ARCHITECTURAL INVARIANTS · ENFORCED BY SCHEMA &amp; UNIT TESTS</span>
+              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-4 studio-hairline-b">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-mono text-[var(--accent-primary)]">
+                    <Shield className="w-3.5 h-3.5" />
+                    <span>Engineering &amp; Privacy Invariants</span>
+                  </div>
+                  <h2 className="text-lg font-bold text-[var(--text-primary)] mt-1">
+                    Ten Non-Negotiable Studio Rules
+                  </h2>
+                </div>
+                <span className="text-xs font-mono text-[var(--text-secondary)]">
+                  Enforced by JSON Schema &amp; Automated Tests
+                </span>
               </div>
-              <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-                Ten Non-Negotiable Product &amp; Engineering Rules
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3 mt-4 text-xs text-zinc-700 dark:text-zinc-300">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 mt-5 text-xs text-[var(--text-secondary)] leading-relaxed">
                 <div>
-                  <strong>Rule 1 (No AI Stem Splitting):</strong> Never use AI stem separation or pseudo-stems. Analyze stems only when the user uploads genuine original stems/multitracks.
+                  <strong className="text-[var(--text-primary)]">01. No AI Stem Splitting:</strong> Never fabricate pseudo-stems from stereo mixdowns. Stem overlap runs solely on genuine user-uploaded multitracks.
                 </div>
                 <div>
-                  <strong>Rule 2 (DSP Source of Truth):</strong> Mathematical DSP measurements are the sole source of objective values. AI must never invent measurements.
+                  <strong className="text-[var(--text-primary)]">02. DSP Source of Truth:</strong> Mathematical DSP calculations are the sole source of objective measurements. AI never invents metrics.
                 </div>
                 <div>
-                  <strong>Rule 3 (Technical Integrity):</strong> Artistic preferences may guide creative advice but never hide measurable technical issues.
+                  <strong className="text-[var(--text-primary)]">03. Technical Integrity:</strong> Creative vision tags guide stylistic advice but never suppress measurable technical warnings.
                 </div>
                 <div>
-                  <strong>Rule 4 (Granular Consent Dimensions):</strong> Audio analysis, external AI transfer of numbers, external AI inspection of audio, raw audio transfer, and model training require separate explicit permissions.
+                  <strong className="text-[var(--text-primary)]">04. Granular Consent Dimensions:</strong> Local DSP, metrics-only AI JSON, direct audio inspection, raw transfer, and model training are separately gated.
                 </div>
                 <div>
-                  <strong>Rule 5 (Zero Default Training):</strong> Default is `model_training_opt_in: false`. Automatic training on user audio is strictly prohibited.
+                  <strong className="text-[var(--text-primary)]">05. Zero Default Training:</strong> Default is strictly <span className="font-mono">model_training_opt_in: false</span>. Ephemeral processing never opts into training.
                 </div>
                 <div>
-                  <strong>Rule 6 (Honest Device Simulation):</strong> Playback-device translation previews are presented strictly as linear filter approximations, not hardware replicas.
+                  <strong className="text-[var(--text-primary)]">06. Honest Device Simulation:</strong> Phone and Laptop translation modes are explicitly labeled as linear biquad filter approximations.
                 </div>
                 <div>
-                  <strong>Rule 7 (Honest Streaming Estimates):</strong> Streaming loudness predictions are presented as estimates based on documented playback modes.
+                  <strong className="text-[var(--text-primary)]">07. Honest Streaming Estimates:</strong> Platform loudness normalization shifts are documented estimates based on published playback targets.
                 </div>
                 <div>
-                  <strong>Rule 8 (Objective vs. Stylistic Split):</strong> Objective technical warnings (`objective_technical`) are strictly separated from stylistic notes (`subjective_stylistic`).
+                  <strong className="text-[var(--text-primary)]">08. Objective vs. Stylistic Split:</strong> Objective technical boundary alerts are cleanly separated from subjective genre-context notes.
                 </div>
                 <div>
-                  <strong>Rule 9 (Lean Local-First Infrastructure):</strong> Zero unnecessary databases, auth walls, or cloud queues.
+                  <strong className="text-[var(--text-primary)]">09. Lean Local-First Architecture:</strong> Ephemeral analysis workspaces purge uploaded audio immediately without auth walls or cloud retention.
                 </div>
                 <div>
-                  <strong>Rule 10 (Maintainable &amp; Testable):</strong> Deterministic unit tests (`node:test` + `pytest`) validate every contract boundary.
+                  <strong className="text-[var(--text-primary)]">10. Verified Contract Boundaries:</strong> Deterministic unit suites (<span className="font-mono">node:test</span> + <span className="font-mono">pytest</span>) validate every DSP and privacy boundary.
                 </div>
               </div>
-            </section>
+            </motion.section>
           </div>
         )}
 
         {route === 'simple' && (
           <div className="space-y-8">
             {reportError && (
-              <div className="border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700/50 p-3 rounded text-xs text-red-900 dark:text-red-200 flex items-center justify-between gap-2">
+              <div className="border border-[var(--status-alert)]/30 bg-rose-50/80 dark:bg-rose-950/30 p-3.5 squircle-inner text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                  <AlertCircle className="w-4 h-4 shrink-0 text-[var(--status-alert)]" />
                   <span>{reportError}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setReportError(null)}
-                  className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-mono"
+                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-mono cursor-pointer"
                 >
                   Dismiss
                 </button>
@@ -639,6 +756,7 @@ function MixLearnStudioShell() {
               }}
               onSwitchToAdvanced={() => navigateTo('advanced')}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
+              onLoadDemoTrack={handleLoadDemoTrack}
               selectedFile={selectedFile}
               onSelectFile={handleSelectFile}
               onClearFile={handleClearFile}
@@ -655,15 +773,15 @@ function MixLearnStudioShell() {
         {route === 'advanced' && (
           <div className="space-y-8">
             {reportError && (
-              <div className="border border-red-300 bg-red-50 dark:bg-red-950/30 dark:border-red-700/50 p-3 rounded text-xs text-red-900 dark:text-red-200 flex items-center justify-between gap-2">
+              <div className="border border-[var(--status-alert)]/30 bg-rose-50/80 dark:bg-rose-950/30 p-3.5 squircle-inner text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-red-600 dark:text-red-400" />
+                  <AlertCircle className="w-4 h-4 shrink-0 text-[var(--status-alert)]" />
                   <span>{reportError}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setReportError(null)}
-                  className="text-xs text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 font-mono"
+                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-mono cursor-pointer"
                 >
                   Dismiss
                 </button>
@@ -691,6 +809,7 @@ function MixLearnStudioShell() {
                 }
               }}
               onAnalyzeAudioFile={handleAnalyzeAudioFile}
+              onLoadDemoTrack={handleLoadDemoTrack}
               selectedFile={selectedFile}
               audioFile={selectedFile}
               onSelectFile={handleSelectFile}
@@ -727,11 +846,11 @@ function MixLearnStudioShell() {
         )}
       </main>
 
-      {/* Quiet Footer */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-800 px-6 py-5 bg-white dark:bg-zinc-950 text-xs text-zinc-500 dark:text-zinc-400">
+      {/* Quiet Studio Footer */}
+      <footer className="studio-hairline-t px-4 sm:px-6 py-5 bg-[var(--bg-elevated)] text-xs text-[var(--text-secondary)]">
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <span>MixLearn Studio · Mathematical DSP &amp; Web Audio Workbench</span>
-          <span className="font-mono">Pure Mathematical DSP · Default Training Opt-In: False</span>
+          <span>MixLearn Studio · Mathematical DSP &amp; Audio Engineering Workbench</span>
+          <span className="font-mono tabular-nums">Default Model Training Opt-In: False</span>
         </div>
       </footer>
     </div>
@@ -740,8 +859,10 @@ function MixLearnStudioShell() {
 
 export default function App() {
   return (
-    <StudioAudioProvider>
-      <MixLearnStudioShell />
-    </StudioAudioProvider>
+    <MotionConfig reducedMotion="user">
+      <StudioAudioProvider>
+        <MixLearnStudioShell />
+      </StudioAudioProvider>
+    </MotionConfig>
   );
 }
