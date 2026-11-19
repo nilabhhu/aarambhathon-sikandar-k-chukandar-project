@@ -13,9 +13,28 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyloudnorm as pyln
+from scipy.signal import resample_poly
 import soundfile as sf
 
 from backend.app.dsp.media_probe import resolve_binary
+
+
+def compute_true_peak_4x_polyphase_dbtp(samples: np.ndarray) -> Optional[float]:
+    """
+    Computes 4x oversampled polyphase FIR inter-sample True Peak in dBTP
+    (ITU-R BS.1770-4 / EBU Tech 3341 methodology).
+    """
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.size == 0:
+        return None
+    if arr.ndim == 1:
+        oversampled = resample_poly(arr, up=4, down=1)
+    else:
+        oversampled = resample_poly(arr, up=4, down=1, axis=0)
+    peak = float(np.max(np.abs(oversampled)))
+    if peak <= 1e-12:
+        return None
+    return round(20.0 * math.log10(peak), 2)
 
 
 def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
@@ -176,21 +195,25 @@ def measure_loudness_ebur128(
         parsed["short_term_max_lufs"] = None
         parsed["lra_lu"] = None
 
-    # Fallback to pyloudnorm for integrated loudness if ffmpeg parsing was incomplete
-    # and file was not explicitly silent
-    if parsed.get("integrated_lufs") is None and not parsed.get("is_silent") and duration_seconds >= 0.4:
+    # Fallback to pyloudnorm for integrated loudness and 4x polyphase for True Peak
+    # if ffmpeg parsing was incomplete and file was not explicitly silent
+    if (parsed.get("integrated_lufs") is None or parsed.get("true_peak_dbtp") is None) and not parsed.get("is_silent"):
         try:
             data, sr = sf.read(str(decoded_wav_path), dtype="float32")
-            meter = pyln.Meter(sr)
-            lufs = meter.integrated_loudness(data)
-            if math.isinf(lufs) or math.isnan(lufs) or lufs <= -99.0:
-                parsed["integrated_lufs"] = None
-                unavailable_reasons["integrated_loudness"] = "audio_signal_silent_or_below_gating_threshold"
-            else:
-                parsed["integrated_lufs"] = round(float(lufs), 2)
+            if parsed.get("integrated_lufs") is None and duration_seconds >= 0.4:
+                meter = pyln.Meter(sr)
+                lufs = meter.integrated_loudness(data)
+                if math.isinf(lufs) or math.isnan(lufs) or lufs <= -99.0:
+                    parsed["integrated_lufs"] = None
+                    unavailable_reasons["integrated_loudness"] = "audio_signal_silent_or_below_gating_threshold"
+                else:
+                    parsed["integrated_lufs"] = round(float(lufs), 2)
+            if parsed.get("true_peak_dbtp") is None:
+                tp = compute_true_peak_4x_polyphase_dbtp(data)
+                if tp is not None:
+                    parsed["true_peak_dbtp"] = tp
         except Exception:
-            parsed["integrated_lufs"] = None
-            if "integrated_loudness" not in unavailable_reasons:
+            if parsed.get("integrated_lufs") is None and "integrated_loudness" not in unavailable_reasons:
                 unavailable_reasons["integrated_loudness"] = "loudness_measurement_unavailable"
 
     # Explicit unavailable reasons when values could not be computed

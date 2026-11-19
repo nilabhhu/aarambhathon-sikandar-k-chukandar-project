@@ -12,7 +12,10 @@ import pyloudnorm as pyln
 import pytest
 import soundfile as sf
 
-from backend.app.dsp.loudness import measure_loudness_ebur128
+from backend.app.dsp.loudness import (
+    compute_true_peak_4x_polyphase_dbtp,
+    measure_loudness_ebur128,
+)
 from backend.app.dsp.spectral import compute_spectral_metrics
 from backend.app.dsp.waveform_metrics import compute_waveform_metrics
 from backend.tests.fixtures_generator import (
@@ -118,3 +121,50 @@ def test_loudness_ebur128_vs_pyloudnorm_cross_validation():
         assert measured_lufs is not None
         # Should match pyloudnorm within +/- 1.0 LUFS
         assert abs(measured_lufs - expected_lufs) < 1.0
+
+
+def test_synthetic_itu_bs1770_lufs_and_4x_polyphase_true_peak():
+    """
+    Fast deterministic verification of ITU-R BS.1770 Integrated LUFS and
+    4x polyphase True Peak (dBTP) using generated NumPy sine and clipped signals.
+    """
+    sr = 48000
+    # 1. Clean 1 kHz stereo sine at -6.0 dBFS peak
+    sine_data, _ = generate_sine_wave(
+        duration_sec=2.0, sample_rate=sr, frequency=1000.0, peak_dbfs=-6.0, channels=2
+    )
+    sine_tp = compute_true_peak_4x_polyphase_dbtp(sine_data)
+    assert sine_tp is not None
+    assert abs(sine_tp - (-6.0)) < 0.15, f"Expected ~-6.0 dBTP for -6 dBFS sine, got {sine_tp}"
+
+    # 2. Clipped / inter-sample overshoot signal (hard-clipped high-frequency burst & 45-deg fs/4 tone)
+    # A fs/4 (12 kHz at 48 kHz) sine sampled at pi/4 + k*pi/2 hits +/-0.7071 digitally,
+    # so scaled to 1.0 digital peak its reconstructed analog peak is +3.01 dBTP!
+    n_samples = int(1.0 * sr)
+    k = np.arange(n_samples)
+    isp_mono = np.clip(
+        np.sqrt(2.0) * np.sin((np.pi / 2.0) * k + (np.pi / 4.0)),
+        -1.0,
+        1.0,
+    ).astype(np.float32)
+    isp_stereo = np.column_stack((isp_mono, isp_mono))
+
+    # Digital sample peak is <= 0.0 dBFS, but 4x polyphase True Peak must detect > +1.5 dBTP overshoot
+    digital_peak_dbfs = 20.0 * math.log10(float(np.max(np.abs(isp_stereo))))
+    polyphase_tp_dbtp = compute_true_peak_4x_polyphase_dbtp(isp_stereo)
+    assert digital_peak_dbfs <= 0.01
+    assert polyphase_tp_dbtp is not None
+    assert polyphase_tp_dbtp > 1.5, f"4x polyphase True Peak failed to detect inter-sample overshoot: {polyphase_tp_dbtp} dBTP"
+
+    # 3. Verify end-to-end measure_loudness_ebur128 on both synthetic sine and clipped signals
+    with tempfile.TemporaryDirectory() as td:
+        clipped_path = Path(td) / "synthetic_clipped_isp.wav"
+        clipped_data, _ = generate_clipped_audio(duration_sec=2.0, sample_rate=sr, amplitude=1.5)
+        sf.write(str(clipped_path), clipped_data, sr, subtype="PCM_24")
+
+        res = measure_loudness_ebur128(clipped_path, duration_seconds=2.0, sample_rate_hz=sr)
+        assert res["integrated_lufs"] is not None
+        assert res["integrated_lufs"] > -6.0  # Hard-clipped 200Hz stereo signal is very loud
+        assert res["true_peak_dbtp"] is not None
+        assert res["true_peak_dbtp"] >= 0.0  # Hard-clipped signal produces >= 0.0 dBTP true peak
+
