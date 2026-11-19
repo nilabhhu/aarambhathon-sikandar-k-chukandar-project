@@ -3,7 +3,7 @@ Phase 5 Evidence-Bound Gemini AI Mentor & Deterministic Offline Fallback.
 
 Security & Privacy Guardrails:
 - Calls the Gemini API STRICTLY server-side using os.environ.get("GEMINI_API_KEY")
-  and the official Python `google-genai` SDK (`gemini-2.5-flash`).
+  and the official Python `google-genai` SDK (`gemini-4-hydrogen`).
 - Never receives or transmits raw audio bytes when Toggle B (direct audio inspection)
   is disabled; strips any audio-byte fields before prompt construction.
 - Rule 2: Cites ONLY exact `evidence_id` values and measured numbers present in the
@@ -28,8 +28,8 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("mixlearn.ai.mentor")
 
-GEMINI_MODEL_NAME = "gemini-2.5-flash"
-GEMINI_FALLBACK_MODEL_NAME = "gemini-2.0-flash"
+GEMINI_MODEL_NAME = "gemini-4-hydrogen"
+GEMINI_FALLBACK_MODEL_NAME = "gemini-3.1-flash-lite"
 GEMINI_TIMEOUT_SECONDS = 18.0
 _LAST_GEMINI_MODEL_USED: contextvars.ContextVar[str] = contextvars.ContextVar(
     "_LAST_GEMINI_MODEL_USED", default=GEMINI_MODEL_NAME
@@ -659,7 +659,7 @@ def _call_gemini_structured(
     """
     Executes a server-side Gemini API call using the official `google-genai` SDK
     with strict Pydantic structured JSON output.
-    Targets `gemini-2.5-flash` first and cleanly falls back to `gemini-2.0-flash`
+    Targets `gemini-4-hydrogen` first and cleanly falls back to `gemini-3.1-flash-lite`
     if a model-not-found ClientError occurs.
     """
     from google import genai
