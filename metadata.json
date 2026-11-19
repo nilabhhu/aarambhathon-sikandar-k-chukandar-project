@@ -1,0 +1,6 @@
+{
+  "name": "MixLearn Studio — Phase 1 Architecture & Foundation",
+  "description": "Privacy-first audio mixing and mastering educational platform: Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/simple", "destination": "/index.html" },
+    { "source": "/advanced", "destination": "/index.html" },
+    { "source": "/architecture", "destination": "/index.html" }
+  ]
+}

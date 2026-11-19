@@ -1,0 +1,71 @@
+name: Phase 2 Architecture, Mathematical DSP & Contract CI
+
+on:
+  push:
+    branches: [main, develop, dev]
+  pull_request:
+    branches: [main, develop, dev]
+
+jobs:
+  contract-and-frontend-checks:
+    name: Frontend Typecheck, Tests & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies (reproducible clean install)
+        run: npm ci
+
+      - name: Run TypeScript typecheck (lint)
+        run: npm run lint
+
+      - name: Run Phase 1 & 2 Contract, Privacy & Integration Unit Tests
+        run: npm test
+
+      - name: Verify JSON Schema contract integrity (v2.0.0)
+        run: |
+          node -e '
+          const fs = require("fs");
+          const schema = JSON.parse(fs.readFileSync("contracts/analysis_report.schema.json", "utf8"));
+          if (schema.properties.schema_version.const !== "2.0.0") throw new Error("Invalid schema_version");
+          if (schema.properties.consent_state.properties.model_training_opt_in.default !== false) {
+            throw new Error("Rule 5 violation: model_training_opt_in default must be false");
+          }
+          if (schema.properties.capabilities.properties.ai_stem_separation.properties.status.const !== "PROHIBITED_BY_PRODUCT_RULE") {
+            throw new Error("Rule 1 violation: ai_stem_separation must be PROHIBITED_BY_PRODUCT_RULE");
+          }
+          console.log("JSON Schema contract v2.0.0 verified successfully.");
+          '
+          node scripts/validate_schema.js
+
+      - name: Build Frontend Production Bundle
+        run: npm run build
+
+  backend-contract-checks:
+    name: Backend Pytest, DSP Engine & Contract Boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system audio libraries (ffmpeg & libsndfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libsndfile1
+
+      - name: Install backend requirements
+        run: pip install -r backend/requirements.txt
+
+      - name: Run Full Pytest Suite (37 contract, dsp validation & endpoint tests)
+        run: PYTHONPATH=. pytest backend/tests/
