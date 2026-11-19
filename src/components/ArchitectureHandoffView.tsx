@@ -24,6 +24,7 @@ interface EndpointProbeResult {
   endpoint: string;
   method: string;
   expectedStatus: number;
+  expectedErrorCode?: string;
   actualStatus?: number;
   latencyMs?: number;
   statusText?: string;
@@ -42,7 +43,13 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
 
   const runEndpointProbe = async () => {
     setProbing(true);
-    const endpointsToProbe = [
+    const endpointsToProbe: Array<{
+      endpoint: string;
+      method: string;
+      expectedStatus: number;
+      expectedErrorCode?: string;
+      body?: string;
+    }> = [
       { endpoint: '/health', method: 'GET', expectedStatus: 200 },
       { endpoint: '/api/v1/health', method: 'GET', expectedStatus: 200 },
       { endpoint: '/api/v1/capabilities', method: 'GET', expectedStatus: 200 },
@@ -53,6 +60,30 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
         method: 'POST',
         expectedStatus: 422,
         body: JSON.stringify([{ stem_name: 'test_ai.wav', stem_source_type: 'ai_separated' }]),
+      },
+      {
+        endpoint: '/api/v1/interpret/ai',
+        method: 'POST',
+        expectedStatus: 403,
+        expectedErrorCode: 'AI_TRANSFER_CONSENT_REQUIRED',
+        body: JSON.stringify({
+          allow_ai_interpretation: false,
+          allow_direct_audio_inspection: false,
+          allow_model_training: false,
+          consent_state: {
+            audio_analysis_consent: true,
+            external_ai_transfer_consent: false,
+            ai_numerical_metrics_transfer_consent: false,
+            ai_audio_content_inspection_consent: false,
+            raw_audio_transfer_consent: false,
+            model_training_opt_in: false,
+          },
+          genre: 'indie_rock',
+          mix_stage: 'unmastered_mix',
+          interface_mode: 'advanced',
+          artist_vision: [],
+          report: { measurements: {}, issues: [] },
+        }),
       },
     ];
 
@@ -69,28 +100,36 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
         });
         const duration = Math.round(performance.now() - startTime);
         let preview = '';
+        let parsedJson: any = null;
         try {
-          const json = await res.json();
-          preview = JSON.stringify(json).slice(0, 90) + '...';
+          parsedJson = await res.json();
+          preview = JSON.stringify(parsedJson).slice(0, 90) + '...';
         } catch {
           preview = await res.text();
         }
+
+        const statusMatches = res.status === item.expectedStatus;
+        const codeMatches = item.expectedErrorCode
+          ? parsedJson?.detail?.error_code === item.expectedErrorCode
+          : true;
 
         results.push({
           endpoint: item.endpoint,
           method: item.method,
           expectedStatus: item.expectedStatus,
+          expectedErrorCode: item.expectedErrorCode,
           actualStatus: res.status,
           latencyMs: duration,
           statusText: `${res.status} ${res.statusText}`,
           responsePreview: preview,
-          success: res.status === item.expectedStatus,
+          success: statusMatches && codeMatches,
         });
       } catch (err: any) {
         results.push({
           endpoint: item.endpoint,
           method: item.method,
           expectedStatus: item.expectedStatus,
+          expectedErrorCode: item.expectedErrorCode,
           statusText: 'Local Web Audio Mode (Backend Offline)',
           responsePreview: err.message,
           success: false,
@@ -279,6 +318,7 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
                     </td>
                     <td className="py-2.5 px-3 text-[var(--text-secondary)] whitespace-nowrap">
                       HTTP {res.expectedStatus}
+                      {res.expectedErrorCode ? ` (${res.expectedErrorCode})` : ''}
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <span

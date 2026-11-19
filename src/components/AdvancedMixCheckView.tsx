@@ -18,6 +18,7 @@ import {
   TranslationMode,
 } from '../audio/StudioAudioEngine';
 import { WaveformInspector, formatTimecode } from './WaveformInspector';
+import { LiveSpectrumAnalyzer } from './LiveSpectrumAnalyzer';
 import { SpectralTonalBalanceGraph } from './SpectralTonalBalanceGraph';
 import { ShortTermLufsTimeline } from './ShortTermLufsTimeline';
 import { PhaseCorrelationMeter } from './PhaseCorrelationMeter';
@@ -27,14 +28,14 @@ import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import { StemOverlapMatrix } from './StemOverlapMatrix';
 import { RevisionDeltaPanel } from './RevisionDeltaPanel';
 import { AiMentorPanel } from './AiMentorPanel';
-import { STUDIO_EASE, STUDIO_SPRING, TACTILE_TAP } from '../lib/motion';
+import { BRUT_EASE, BRUT_SPRING, TACTILE_TAP } from '../lib/motion';
 import {
   Activity,
-  ChevronDown,
   FileAudio,
   Info,
   Pause,
   Play,
+  Plus,
   Repeat,
   RotateCcw,
   SlidersHorizontal,
@@ -104,6 +105,74 @@ function formatMeasurement(
   if (val === null || val === undefined || !Number.isFinite(val)) return 'N/A';
   const prefix = showPlus && val > 0 ? '+' : '';
   return `${prefix}${val.toFixed(decimals)}${unit ? ` ${unit}` : ''}`;
+}
+
+interface StreamingEstimateRow {
+  platform: string;
+  targetLufs: number;
+  gainChangeDb: number | null;
+  projectedPeakDbTp: number | null;
+  note: string;
+}
+
+function computeStreamingEstimates(
+  integratedLufs: number | null | undefined,
+  truePeakDbTp: number | null | undefined
+): StreamingEstimateRow[] {
+  const platforms = [
+    {
+      platform: 'SPOTIFY (NORMAL)',
+      targetLufs: -14.0,
+      turnsUpQuiet: true,
+      baseNote: 'Loudness normalization applies gain shift toward -14 LUFS.',
+    },
+    {
+      platform: 'APPLE MUSIC (SOUND CHECK)',
+      targetLufs: -16.0,
+      turnsUpQuiet: true,
+      baseNote: 'Sound Check targets approx. -16 LUFS album/track average.',
+    },
+    {
+      platform: 'YOUTUBE',
+      targetLufs: -14.0,
+      turnsUpQuiet: false,
+      baseNote: 'Attenuates mixes louder than -14 LUFS; does not boost quieter tracks.',
+    },
+  ];
+
+  return platforms.map((p) => {
+    if (integratedLufs === null || integratedLufs === undefined || !Number.isFinite(integratedLufs)) {
+      return {
+        platform: p.platform,
+        targetLufs: p.targetLufs,
+        gainChangeDb: null,
+        projectedPeakDbTp: null,
+        note: p.baseNote,
+      };
+    }
+    const rawDelta = p.targetLufs - integratedLufs;
+    const gainChangeDb = p.turnsUpQuiet ? rawDelta : Math.min(0, rawDelta);
+    const projectedPeakDbTp =
+      truePeakDbTp !== null && truePeakDbTp !== undefined && Number.isFinite(truePeakDbTp)
+        ? truePeakDbTp + gainChangeDb
+        : null;
+    const note =
+      gainChangeDb < -0.2
+        ? `Estimated ${gainChangeDb.toFixed(1)} dB attenuation on playback.`
+        : gainChangeDb > 0.2
+        ? `Estimated +${gainChangeDb.toFixed(1)} dB playback boost (limiter-limited if near 0 dBTP).`
+        : p.turnsUpQuiet
+        ? 'Within ~0.2 dB of target normalization.'
+        : 'No attenuation applied (below -14 LUFS threshold).';
+
+    return {
+      platform: p.platform,
+      targetLufs: p.targetLufs,
+      gainChangeDb,
+      projectedPeakDbTp,
+      note,
+    };
+  });
 }
 
 export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
@@ -214,7 +283,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
     setActiveTimestamp(first?.timestamps?.[0] ?? null);
   }, [report?.report_id]);
 
-  // 60fps live timecode sync for the Transport Deck without React re-renders
+  // 60fps live timecode sync without React re-renders
   useEffect(() => {
     let rafId = 0;
     const tick = () => {
@@ -307,23 +376,30 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
       ? audioState.primaryDurationSec
       : report?.file_metadata.duration_seconds ?? 0;
 
+  const streamingRows = report
+    ? computeStreamingEstimates(
+        report.measurements.integrated_loudness.value,
+        report.measurements.true_peak_max.value
+      )
+    : [];
+
   const viewStateKey = isAnalyzing ? 'analyzing' : report ? `report-${report.report_id}` : 'empty';
 
   return (
     <div className="space-y-6">
-      {/* Workbench Header & Upload Controls */}
+      {/* WORKBENCH HEADER & UPLOAD CONTROLS */}
       <section
         aria-label="Advanced Mix Check Context Controls"
-        className="studio-elevated squircle-outer p-5 md:p-6"
+        className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
       >
-        <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="p-5 flex flex-wrap items-center justify-between gap-4 border-b-[1.5px] border-[var(--border-ink)] bg-[var(--bg-surface)]">
           <div>
-            <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-              Advanced Mix Check Workbench
+            <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[#FF3B1F]">
+              02 · FULL MASTERING &amp; DIAGNOSTICS CONSOLE · /ADVANCED
+            </div>
+            <h1 className="font-display text-3xl sm:text-4xl uppercase text-[var(--ink)] mt-0.5">
+              ADVANCED MIX WORKBENCH
             </h1>
-            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-              Loudness-matched A/B auditioning, translation filter lab, original multitrack stem overlap, and v1 → v2 revision delta tracking.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
@@ -335,7 +411,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 id="adv-genre-select"
                 value={genre}
                 onChange={(e) => onChangeGenre(e.target.value as GenreId)}
-                className="squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] px-3 py-2 text-xs font-bold uppercase text-[var(--ink)] focus:outline-none focus:bg-[#FFD600] focus:text-[#0A0A0A]"
               >
                 {(Object.keys(GENRE_LABELS) as GenreId[]).map((g) => (
                   <option key={g} value={g}>
@@ -346,7 +422,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
             </div>
 
             <div
-              className="flex items-center gap-1 p-1 bg-[var(--bg-surface)] squircle-inner border border-[var(--border-hairline-color)]"
+              className="inline-flex border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] divide-x-2 divide-[var(--border-ink)]"
               role="group"
               aria-label="Mix Stage"
             >
@@ -359,17 +435,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     whileTap={TACTILE_TAP}
                     onClick={() => onChangeMixStage(st)}
                     aria-pressed={active}
-                    className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`relative px-3 py-2 text-[11px] font-ui font-bold uppercase tracking-wider transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                       active
-                        ? 'text-[var(--text-primary)] font-semibold'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        ? 'text-[var(--bg-canvas)]'
+                        : 'text-[var(--ink)] hover:bg-[var(--bg-surface)]'
                     }`}
                   >
                     {active && (
                       <motion.span
                         layoutId="adv-stage-pill"
-                        transition={STUDIO_SPRING}
-                        className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
+                        transition={BRUT_SPRING}
+                        className="absolute inset-0 bg-[var(--ink)]"
                       />
                     )}
                     <span className="relative z-10">{MIX_STAGE_LABELS[st].title}</span>
@@ -378,22 +454,21 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               })}
             </div>
 
-            {/* Primary Audio Bounce Upload */}
             <div className="flex flex-wrap items-center gap-1.5">
               <label
                 htmlFor="adv-audio-upload"
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex items-center gap-1.5 px-3 py-2 squircle-inner border border-dashed text-xs font-medium cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
+                className={`flex items-center gap-1.5 px-3 py-2 border-2 border-dashed border-[var(--border-ink)] text-xs font-mono font-bold uppercase cursor-pointer transition-colors shrink-0 whitespace-nowrap ${
                   isDragOver
-                    ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
-                    : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)]'
+                    ? 'bg-[#FFD600] text-[#0A0A0A]'
+                    : 'bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[#FFD600] hover:text-[#0A0A0A]'
                 }`}
               >
-                <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                <span className="truncate max-w-[150px] font-mono">
-                  {selectedFile ? selectedFile.name : 'Upload Mix (A)'}
+                <Upload className="w-3.5 h-3.5" />
+                <span className="truncate max-w-[150px]">
+                  {selectedFile ? selectedFile.name : 'UPLOAD MIX (A)'}
                 </span>
               </label>
               <input
@@ -412,11 +487,10 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     whileTap={TACTILE_TAP}
                     onClick={handleReAnalyze}
                     disabled={isAnalyzing}
-                    className="px-3 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
-                    title="Re-run DSP analysis with current genre/stage targets"
+                    className="px-3 py-2 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-mono text-[11px] font-bold uppercase transition-colors disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Re-Analyze</span>
+                    <span>RE-RUN</span>
                   </motion.button>
                   {onClearFile && (
                     <motion.button
@@ -424,9 +498,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                       whileTap={TACTILE_TAP}
                       onClick={onClearFile}
                       disabled={isAnalyzing}
-                      className="px-2.5 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] text-xs font-medium transition-colors whitespace-nowrap cursor-pointer"
+                      className="px-2.5 py-2 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[#FF3B1F] hover:text-white font-mono text-[11px] font-bold uppercase transition-colors whitespace-nowrap cursor-pointer"
                     >
-                      Clear
+                      CLEAR
                     </motion.button>
                   )}
                 </>
@@ -437,23 +511,23 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
         {/* File Metadata Strip */}
         {report && (
-          <div className="mt-4 pt-3.5 studio-hairline-t flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
-            <span className="inline-flex items-center gap-1.5 text-[var(--text-primary)] font-semibold">
-              <FileAudio className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+          <div className="px-5 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs font-mono tabular-nums text-[var(--ink-muted)] bg-[var(--bg-canvas)]">
+            <span className="inline-flex items-center gap-1.5 text-[var(--ink)] font-bold">
+              <FileAudio className="w-3.5 h-3.5" />
               {report.file_metadata.filename}
             </span>
             <span>{report.file_metadata.format}</span>
-            <span>{report.file_metadata.sample_rate_hz} Hz</span>
+            <span>{report.file_metadata.sample_rate_hz} HZ</span>
             <span>
-              {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-bit` : 'Float32'}
+              {report.file_metadata.bit_depth ? `${report.file_metadata.bit_depth}-BIT` : 'FLOAT32'}
             </span>
-            <span>{report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}</span>
+            <span>{report.file_metadata.channels === 1 ? 'MONO' : 'STEREO'}</span>
             <span>{formatTimecode(report.file_metadata.duration_seconds)}</span>
           </div>
         )}
       </section>
 
-      {/* AnimatePresence Transition: Empty Dropzone -> DSP Loading Scanner -> Populated Workbench */}
+      {/* BODY STATE TRANSITION */}
       <AnimatePresence mode="wait">
         {isAnalyzing && (
           <DspAnalysisLoadingScreen
@@ -475,40 +549,31 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: isDragOver ? 1.008 : 1,
-            }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
-            transition={isDragOver ? STUDIO_SPRING : { duration: 0.28, ease: STUDIO_EASE }}
-            className={`squircle-outer border border-dashed p-12 text-center space-y-4 transition-colors ${
-              isDragOver
-                ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)]'
-                : 'border-[var(--border-hairline-color)] bg-[var(--bg-elevated)]'
+            transition={{ duration: 0.24, ease: BRUT_EASE }}
+            className={`border-2 border-[var(--border-ink)] p-10 sm:p-14 text-center space-y-5 transition-colors ${
+              isDragOver ? 'bg-[#FFD600] text-[#0A0A0A]' : 'bg-[var(--bg-canvas)]'
             }`}
           >
-            <div className="w-14 h-14 squircle-inner bg-[var(--accent-soft)] border border-[var(--border-active-color)] text-[var(--accent-primary)] mx-auto flex items-center justify-center">
-              <Activity className="w-6 h-6" />
+            <div className="w-16 h-16 border-2 border-[var(--border-ink)] bg-[#FF3B1F] text-white mx-auto flex items-center justify-center">
+              <Activity className="w-7 h-7" />
             </div>
-            <div className="max-w-md mx-auto space-y-2">
-              <h2 className="text-lg font-bold text-[var(--text-primary)]">
-                No Audio Loaded Yet
+            <div className="max-w-lg mx-auto space-y-2">
+              <h2 className="font-display text-3xl sm:text-4xl uppercase text-[var(--ink)]">
+                NO AUDIO LOADED YET
               </h2>
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Drop Mix (A) here or choose a bounce (.WAV, .FLAC, .AIFF, or .MP3) above to open the Advanced Mix Check Workbench.
+              <p className="text-xs sm:text-sm text-[var(--ink-muted)] leading-relaxed">
+                Drop Mix (A) here or choose a bounce (.WAV, .FLAC, .AIFF, .MP3) to launch the 60fps Live Spectrum, Waveform, Peak/LUFS, Goniometer, A/B Reference Deck, and Translation Lab.
               </p>
-              <p className="text-[11px] text-[var(--text-secondary)]/85 leading-relaxed">
-                Once loaded, optionally add a Reference Track (B) for loudness-matched A/B comparison and translation filter checks.
-              </p>
-              <div className="pt-3 flex flex-wrap items-center justify-center gap-2.5">
+              <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
                 <label
                   htmlFor="adv-audio-upload"
-                  className="inline-flex items-center gap-2 px-4 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-xs font-semibold cursor-pointer transition-colors"
+                  className="inline-flex items-center gap-2 px-5 py-3 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] font-ui text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
                 >
-                  <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                  <span>Upload Mix (A)</span>
+                  <Upload className="w-4 h-4" />
+                  <span>UPLOAD MIX (A)</span>
                 </label>
                 {(onLoadDemoTrack || onLoadDemonstration) && (
                   <motion.button
@@ -516,9 +581,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     whileTap={TACTILE_TAP}
                     onClick={onLoadDemoTrack || onLoadDemonstration}
                     data-testid="load-demo-track-btn"
-                    className="inline-flex items-center gap-2 px-4 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white font-mono text-xs font-semibold tracking-wide transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-3 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-mono text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
                   >
-                    <Activity className="w-3.5 h-3.5" />
+                    <Activity className="w-4 h-4" />
                     <span>LOAD DEMO TRACK</span>
                   </motion.button>
                 )}
@@ -530,21 +595,21 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
         {!isAnalyzing && report && (
           <motion.div
             key={viewStateKey}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.3, ease: STUDIO_EASE }}
+            transition={{ duration: 0.26, ease: BRUT_EASE }}
             className="space-y-6"
           >
-            {/* 1. Tactile Transport & Translation Deck */}
+            {/* 1. SHARP GRID TRANSPORT & TRANSLATION DECK */}
             <section
               aria-label="Tactile Transport and Translation Deck"
               data-testid="tactile-transport-deck"
-              className="studio-elevated squircle-outer p-5 md:p-6 space-y-4"
+              className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
             >
-              {/* Primary Controls Row */}
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                {/* Left: Transport Play/Pause + Restart + Live Timecode */}
+              {/* Controls Row */}
+              <div className="p-4 sm:p-5 flex flex-wrap items-center justify-between gap-4 border-b-[1.5px] border-[var(--border-ink)]">
+                {/* Transport Play/Pause + Restart + Live Timecode */}
                 <div className="flex items-center gap-3">
                   <motion.button
                     type="button"
@@ -553,12 +618,16 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     disabled={!audioState.hasPrimaryMix}
                     aria-label={audioState.isPlaying ? 'Pause playback' : 'Start playback'}
                     data-testid="deck-play-toggle"
-                    className="inline-flex items-center justify-center w-10 h-10 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white transition-colors disabled:opacity-45 shrink-0 cursor-pointer"
+                    className={`inline-flex items-center justify-center w-11 h-11 border-2 border-[var(--border-ink)] transition-colors disabled:opacity-45 shrink-0 cursor-pointer ${
+                      audioState.isPlaying
+                        ? 'bg-[#FF3B1F] text-white'
+                        : 'bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600]'
+                    }`}
                   >
                     {audioState.isPlaying ? (
-                      <Pause className="w-4 h-4" />
+                      <Pause className="w-5 h-5" />
                     ) : (
-                      <Play className="w-4 h-4 ml-0.5" />
+                      <Play className="w-5 h-5 ml-0.5" />
                     )}
                   </motion.button>
 
@@ -568,51 +637,48 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     onClick={() => engine.seek(0, true)}
                     disabled={!audioState.hasPrimaryMix}
                     aria-label="Restart from beginning"
-                    className="p-2.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors disabled:opacity-45 cursor-pointer"
+                    className="w-11 h-11 border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] flex items-center justify-center transition-colors disabled:opacity-45 cursor-pointer"
                   >
                     <RotateCcw className="w-4 h-4" />
                   </motion.button>
 
-                  <div className="font-mono tabular-nums">
-                    <div className="text-base font-bold text-[var(--text-primary)] leading-none">
+                  <div className="font-mono tabular-nums pl-1">
+                    <div className="text-lg font-bold text-[var(--ink)] leading-none">
                       <span ref={deckTimecodeRef}>
                         {formatTimecode(engine.getCurrentTime())}
                       </span>
                       <span className="opacity-35 font-normal text-xs mx-1.5">/</span>
-                      <span className="text-[var(--text-secondary)] font-normal text-xs">
+                      <span className="text-[var(--ink-muted)] font-normal text-xs">
                         {formatTimecode(effectiveDuration)}
                       </span>
                     </div>
-                    <div className="text-[11px] text-[var(--text-secondary)] mt-1 flex items-center gap-2">
-                      <span>
-                        Deck {audioState.activeDeck}
-                        {audioState.isLooping && audioState.loopRegion ? ' · Loop Active' : ''}
-                      </span>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)] mt-1 flex items-center gap-2">
+                      <span>DECK {audioState.activeDeck}</span>
                       {audioState.loopRegion && (
                         <button
                           type="button"
                           onClick={() => engine.toggleLooping()}
-                          className={`inline-flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 border border-[var(--border-ink)] transition-colors cursor-pointer ${
                             audioState.isLooping
-                              ? 'text-[var(--accent-primary)]'
-                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                              ? 'bg-[#FFD600] text-[#0A0A0A]'
+                              : 'bg-[var(--bg-surface)] text-[var(--ink)]'
                           }`}
                         >
                           <Repeat className="w-3 h-3" />
-                          <span>{audioState.isLooping ? 'Loop On' : 'Loop Off'}</span>
+                          <span>{audioState.isLooping ? 'LOOP ON' : 'LOOP OFF'}</span>
                         </button>
                       )}
                     </div>
                   </div>
                 </div>
 
-                {/* Right: Three Segmented Tactile Pill Wells (STUDIO_SPRING + TACTILE_TAP) */}
-                <div className="flex flex-wrap items-center gap-3">
-                  {/* Segmented 1: Mix A / Reference B / Revision v2 */}
+                {/* Mechanical Segmented Switches */}
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* MIX A / REF B / REV V2 */}
                   <div
                     role="group"
                     aria-label="Active Deck A/B/v2 Switcher"
-                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
+                    className="inline-flex border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] divide-x-2 divide-[var(--border-ink)]"
                   >
                     {(
                       audioState.hasRevisionV2
@@ -624,11 +690,11 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                       const deckLabel =
                         deck === 'A'
                           ? audioState.hasRevisionV2
-                            ? 'Mix v1'
-                            : 'Mix A'
+                            ? 'MIX V1'
+                            : 'MIX A'
                           : deck === 'V2'
-                          ? 'Rev v2'
-                          : 'Reference B';
+                          ? 'REV V2'
+                          : 'REF B';
                       return (
                         <motion.button
                           key={deck}
@@ -638,17 +704,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           onClick={() => engine.setActiveDeck(deck)}
                           aria-pressed={active}
                           data-testid={`deck-switch-${deck}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                          className={`relative px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer ${
                             active
-                              ? 'text-white font-semibold'
-                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                              ? 'text-[#0A0A0A]'
+                              : 'text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-ab-pill"
-                              transition={STUDIO_SPRING}
-                              className="absolute inset-0 squircle-inner bg-[var(--accent-primary)]"
+                              transition={BRUT_SPRING}
+                              className="absolute inset-0 bg-[#FFD600]"
                             />
                           )}
                           <span className="relative z-10">{deckLabel}</span>
@@ -657,15 +723,15 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     })}
                   </div>
 
-                  {/* Segmented 2: Stereo / Mono */}
+                  {/* STEREO / MONO */}
                   <div
                     role="group"
                     aria-label="Stereo or Equal-Power Mono Folding"
-                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
+                    className="inline-flex border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] divide-x-2 divide-[var(--border-ink)]"
                   >
                     {[
-                      { id: false, label: 'Stereo' },
-                      { id: true, label: 'Mono' },
+                      { id: false, label: 'STEREO' },
+                      { id: true, label: 'MONO' },
                     ].map((opt) => {
                       const active = audioState.monoMode === opt.id;
                       return (
@@ -676,17 +742,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           onClick={() => engine.setMonoMode(opt.id)}
                           aria-pressed={active}
                           data-testid={`monitoring-${opt.label.toLowerCase()}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                          className={`relative px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${
                             active
-                              ? 'text-[var(--text-primary)] font-semibold'
-                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                              ? 'text-[var(--bg-canvas)]'
+                              : 'text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-mono-pill"
-                              transition={STUDIO_SPRING}
-                              className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
+                              transition={BRUT_SPRING}
+                              className="absolute inset-0 bg-[var(--ink)]"
                             />
                           )}
                           <span className="relative z-10">{opt.label}</span>
@@ -695,11 +761,11 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     })}
                   </div>
 
-                  {/* Segmented 3: Mix Translation Lab (Full / Phone / Laptop) */}
+                  {/* FULL / PHONE / LAPTOP */}
                   <div
                     role="group"
                     aria-label="Mix Translation Lab Filter Profile"
-                    className="inline-flex items-center p-1 squircle-inner bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]"
+                    className="inline-flex border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] divide-x-2 divide-[var(--border-ink)]"
                   >
                     {(['full', 'phone', 'laptop'] as TranslationMode[]).map((mode) => {
                       const active = audioState.translationMode === mode;
@@ -711,17 +777,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           onClick={() => engine.setTranslationMode(mode)}
                           aria-pressed={active}
                           data-testid={`translation-${mode}`}
-                          className={`relative px-3 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                          className={`relative px-3 py-2 font-mono text-[11px] font-bold uppercase tracking-wider transition-colors whitespace-nowrap cursor-pointer ${
                             active
-                              ? 'text-[var(--text-primary)] font-semibold'
-                              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                              ? 'text-[var(--bg-canvas)]'
+                              : 'text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
                           }`}
                         >
                           {active && (
                             <motion.span
                               layoutId="adv-translation-pill"
-                              transition={STUDIO_SPRING}
-                              className="absolute inset-0 squircle-inner bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)]"
+                              transition={BRUT_SPRING}
+                              className="absolute inset-0 bg-[var(--ink)]"
                             />
                           )}
                           <span className="relative z-10">
@@ -734,20 +800,20 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 </div>
               </div>
 
-              {/* Reference Track B Upload + Loudness Match Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 studio-hairline-t text-xs">
+              {/* Reference B Loader + Rule 6 Disclosure */}
+              <div className="px-5 py-3 flex flex-wrap items-center justify-between gap-3 border-b-[1.5px] border-[var(--border-ink)] bg-[var(--bg-surface)] text-xs">
                 <div className="flex flex-wrap items-center gap-2.5">
                   <label
                     htmlFor="adv-ref-upload"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] font-medium cursor-pointer transition-colors whitespace-nowrap"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-canvas)] hover:bg-[#FFD600] hover:text-[#0A0A0A] font-mono text-[11px] font-bold uppercase cursor-pointer transition-colors whitespace-nowrap"
                   >
-                    <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                    <Upload className="w-3.5 h-3.5" />
                     <span>
                       {audioState.loadingReference
-                        ? 'Decoding Reference B...'
+                        ? 'DECODING REF B...'
                         : audioState.hasReferenceTrack
-                        ? 'Change Reference B'
-                        : 'Load Reference Track (B)'}
+                        ? 'CHANGE REF B'
+                        : 'LOAD REFERENCE (B)'}
                     </span>
                   </label>
                   <input
@@ -760,15 +826,14 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
                   {audioState.hasReferenceTrack && (
                     <>
-                      <span className="font-mono text-[var(--text-primary)] truncate max-w-[200px]">
+                      <span className="font-mono font-bold text-[var(--ink)] truncate max-w-[180px]">
                         {audioState.referenceFileName}
                       </span>
-                      <span aria-hidden="true" className="opacity-35">·</span>
                       <span
                         data-testid="reference-loudness-offset"
-                        className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold"
+                        className="px-2 py-0.5 border border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] font-mono text-[11px] font-bold tabular-nums"
                       >
-                        Loudness Match:{' '}
+                        MATCH:{' '}
                         {audioState.referenceMatchOffsetDb !== null
                           ? `${audioState.referenceMatchOffsetDb >= 0 ? '+' : ''}${audioState.referenceMatchOffsetDb.toFixed(1)} dB`
                           : '0.0 dB'}
@@ -779,79 +844,78 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           engine.setLoudnessMatchEnabled(!audioState.loudnessMatchEnabled)
                         }
                         aria-pressed={audioState.loudnessMatchEnabled}
-                        className="text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 whitespace-nowrap cursor-pointer"
+                        className="font-mono text-[11px] font-bold uppercase underline underline-offset-2 text-[var(--ink)] cursor-pointer"
                       >
-                        {audioState.loudnessMatchEnabled ? 'Matched (Click to Bypass)' : 'Match Bypassed'}
+                        {audioState.loudnessMatchEnabled ? 'MATCH ON' : 'BYPASSED'}
                       </button>
                       <button
                         type="button"
                         onClick={() => engine.clearReferenceTrack()}
                         aria-label="Remove Reference Track B"
-                        className="p-1 squircle-inner hover:bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-pointer"
+                        className="p-1 border border-[var(--border-ink)] hover:bg-[#FF3B1F] hover:text-white cursor-pointer"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="w-3 h-3" />
                       </button>
                     </>
                   )}
                 </div>
 
-                {/* Explicit Educational Approximation Disclosure (Rule 6) */}
                 <div
                   data-testid="translation-disclosure"
-                  className={`flex items-center gap-1.5 text-[11px] ${
+                  className={`flex items-center gap-1.5 font-mono text-[11px] ${
                     activeTranslationProfile.isApproximation
-                      ? 'text-[var(--status-caution)] font-medium'
-                      : 'text-[var(--text-secondary)]'
+                      ? 'text-[#FF3B1F] font-bold'
+                      : 'text-[var(--ink-muted)]'
                   }`}
                 >
                   <Info className="w-3.5 h-3.5 shrink-0" />
                   <span>
-                    <strong>{activeTranslationProfile.label}:</strong>{' '}
+                    <strong>{activeTranslationProfile.label.toUpperCase()}:</strong>{' '}
                     {activeTranslationProfile.disclosure}
                   </span>
                 </div>
               </div>
 
-              {/* Key Telemetry Strip (Tabular-Nums) */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3.5 studio-hairline-t">
-                <div className="squircle-inner studio-surface px-3.5 py-2.5">
-                  <div className="text-[11px] text-[var(--text-secondary)]">
-                    Integrated Loudness
+              {/* 4-Cell Key Telemetry Strip */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 divide-x-[1.5px] divide-y-[1.5px] lg:divide-y-0 divide-[var(--border-ink)]">
+                <div className="p-4 bg-[var(--bg-canvas)]">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)]">
+                    INTEGRATED LOUDNESS
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
+                  <div className="text-xl font-bold font-mono tabular-nums text-[var(--ink)] mt-1">
                     {formatMeasurement(report.measurements.integrated_loudness.value, 'LUFS')}
                   </div>
                 </div>
 
-                <div className="squircle-inner studio-surface px-3.5 py-2.5">
-                  <div className="text-[11px] text-[var(--text-secondary)]">
-                    True Peak Max
+                <div className="p-4 bg-[var(--bg-canvas)]">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)]">
+                    TRUE PEAK MAX
                   </div>
                   <div
-                    className={`text-lg font-bold font-mono tabular-nums mt-0.5 ${
+                    className={`text-xl font-bold font-mono tabular-nums mt-1 ${
                       report.measurements.true_peak_max.status === 'critical'
-                        ? 'text-[var(--status-alert)]'
-                        : 'text-[var(--text-primary)]'
+                        ? 'text-[#FF3B1F]'
+                        : 'text-[var(--ink)]'
                     }`}
                   >
                     {formatMeasurement(report.measurements.true_peak_max.value, 'dBTP', 2, true)}
                   </div>
                 </div>
 
-                <div className="squircle-inner studio-surface px-3.5 py-2.5">
-                  <div className="text-[11px] text-[var(--text-secondary)]">
-                    Loudness Range (LRA)
+                <div className="p-4 bg-[var(--bg-canvas)]">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)]">
+                    LOUDNESS RANGE (LRA)
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
+                  <div className="text-xl font-bold font-mono tabular-nums text-[var(--ink)] mt-1">
                     {formatMeasurement(report.measurements.loudness_range_lra.value, 'LU')}
                   </div>
                 </div>
 
-                <div className="squircle-inner studio-surface px-3.5 py-2.5">
-                  <div className="text-[11px] text-[var(--text-secondary)]">
-                    Phase Correlation (Mean / Min)
+                <div className="p-4 bg-[var(--bg-canvas)]">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)]">
+                    PHASE CORRELATION (MEAN / MIN)
                   </div>
-                  <div className="text-lg font-bold font-mono tabular-nums text-[var(--text-primary)] mt-0.5">
+                  <div className="text-xl font-bold font-mono tabular-nums text-[var(--ink)] mt-1">
                     {report.file_metadata.channels === 1
                       ? '+1.00 / +1.00'
                       : `${formatMeasurement(
@@ -870,7 +934,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </section>
 
-            {/* 2. 60fps Canvas Waveform & Clickable Issue Markers */}
+            {/* 2. 60FPS WAVEFORM INSPECTOR */}
             <WaveformInspector
               durationSeconds={report.file_metadata.duration_seconds}
               issues={report.issues}
@@ -884,7 +948,23 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               showTransportBar={false}
             />
 
-            {/* 2B. Real-Time 60fps Studio Output Metering Row (Peak/LUFS + 2D Goniometer) */}
+            {/* 3. LIVE STUDIO METERING GRID: FULL-WIDTH 60FPS SPECTRUM + SIDE-BY-SIDE PEAK/LUFS & VECTORSCOPE */}
+            <LiveSpectrumAnalyzer
+              mode="advanced"
+              height={244}
+              issues={report.issues}
+              activeIssueId={activeIssueId}
+              staticSpectrumBins={audioState.primarySpectrumBins}
+              staticSixBands={audioState.primarySixBands}
+              title="LIVE 60FPS FFT SPECTRUM ANALYZER · 20 HZ – 20 KHZ"
+              subtitle={`DECK ${audioState.activeDeck} · ${audioState.monoMode ? 'MONO' : 'STEREO'}`}
+              onSelectZone={(_zoneId, matchedIssueId) => {
+                if (matchedIssueId) {
+                  handleFocusIssue(matchedIssueId);
+                }
+              }}
+            />
+
             <div
               data-testid="live-studio-metering-row"
               className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch"
@@ -906,70 +986,127 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </div>
 
-            {/* 3. Three Clean Diagnostic Visualizations (Asymmetric Studio Grid) */}
-            <div className="space-y-6">
-              <SpectralTonalBalanceGraph
-                report={report}
-                genre={genre}
-                mixStage={mixStage}
-                measuredSixBands={audioState.primarySixBands}
-                referenceSixBands={audioState.referenceSixBands}
-                referenceFileName={audioState.referenceFileName}
-                spectrumBins={audioState.primarySpectrumBins}
-                variant="advanced"
-                focusedIssueId={activeIssueId}
-                flashNonce={spectrumFlashNonce}
-                onSelectFlaggedIssue={handleFocusIssue}
-              />
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-                <div className="lg:col-span-7 flex flex-col">
-                  <div className="flex-1">
-                    <ShortTermLufsTimeline
-                      timeline={report.timeline}
-                      durationSeconds={effectiveDuration}
-                      mixStage={mixStage}
-                      integratedLufs={report.measurements.integrated_loudness.value}
-                      shortTermMaxLufs={report.measurements.short_term_max_loudness.value}
-                    />
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              <div className="lg:col-span-7 flex flex-col">
+                <div className="flex-1">
+                  <ShortTermLufsTimeline
+                    timeline={report.timeline}
+                    durationSeconds={effectiveDuration}
+                    mixStage={mixStage}
+                    integratedLufs={report.measurements.integrated_loudness.value}
+                    shortTermMaxLufs={report.measurements.short_term_max_loudness.value}
+                  />
                 </div>
-                <div className="lg:col-span-5 flex flex-col">
-                  <div className="flex-1">
-                    <PhaseCorrelationMeter
-                      meanCorrelation={report.measurements.phase_correlation_mean.value}
-                      minCorrelation={report.measurements.phase_correlation_min.value}
-                      stereoWidthIndex={report.measurements.stereo_width_index.value}
-                      channels={report.file_metadata.channels}
-                      timeline={report.timeline}
-                    />
-                  </div>
+              </div>
+              <div className="lg:col-span-5 flex flex-col">
+                <div className="flex-1">
+                  <PhaseCorrelationMeter
+                    meanCorrelation={report.measurements.phase_correlation_mean.value}
+                    minCorrelation={report.measurements.phase_correlation_min.value}
+                    stereoWidthIndex={report.measurements.stereo_width_index.value}
+                    channels={report.file_metadata.channels}
+                    timeline={report.timeline}
+                  />
                 </div>
               </div>
             </div>
 
-            {/* 4. Objective Technical Warnings vs. Subjective Stylistic Notes (Rule 8) */}
+            {/* 4. DEEP ENGINEERING MODULES: 6-BAND GENRE ENVELOPE & STREAMING NORMALIZATION ESTIMATES */}
+            <SpectralTonalBalanceGraph
+              report={report}
+              genre={genre}
+              mixStage={mixStage}
+              measuredSixBands={audioState.primarySixBands}
+              referenceSixBands={audioState.referenceSixBands}
+              referenceFileName={audioState.referenceFileName}
+              spectrumBins={audioState.primarySpectrumBins}
+              variant="advanced"
+              focusedIssueId={activeIssueId}
+              flashNonce={spectrumFlashNonce}
+              onSelectFlaggedIssue={handleFocusIssue}
+            />
+
+            {/* Streaming Normalization Estimates (Spotify / Apple Music / YouTube — Rule 7 Explicit Estimate Disclosure) */}
+            <section
+              aria-label="Streaming Normalization Estimates"
+              data-testid="streaming-normalization-estimates"
+              className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
+            >
+              <div className="px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                    RULE 7 · DOCUMENTED PLAYBACK ESTIMATES
+                  </div>
+                  <h2 className="font-display text-2xl uppercase text-[var(--ink)] mt-0.5">
+                    STREAMING NORMALIZATION ESTIMATES
+                  </h2>
+                </div>
+                <span className="px-2.5 py-1 border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-canvas)] font-mono text-[10px] font-bold uppercase">
+                  ESTIMATE · NOT PLATFORM CERTIFICATION
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 divide-y-[1.5px] md:divide-y-0 md:divide-x-[1.5px] divide-[var(--border-ink)]">
+                {streamingRows.map((row) => (
+                  <div key={row.platform} className="p-5 flex flex-col justify-between gap-3">
+                    <div>
+                      <div className="flex items-center justify-between gap-2 font-mono text-[11px] font-bold uppercase">
+                        <span className="text-[var(--ink)]">{row.platform}</span>
+                        <span className="text-[var(--ink-muted)] tabular-nums">
+                          TARGET {row.targetLufs.toFixed(1)} LUFS
+                        </span>
+                      </div>
+                      <div className="mt-3 flex items-baseline justify-between gap-2 font-mono tabular-nums">
+                        <span
+                          className={`text-2xl font-bold ${
+                            row.gainChangeDb !== null && row.gainChangeDb < -1.0
+                              ? 'text-[#FF3B1F]'
+                              : 'text-[var(--ink)]'
+                          }`}
+                        >
+                          {row.gainChangeDb !== null
+                            ? `${row.gainChangeDb >= 0 ? '+' : ''}${row.gainChangeDb.toFixed(1)} dB`
+                            : 'N/A'}
+                        </span>
+                        <span className="text-[11px] text-[var(--ink-muted)]">
+                          PROJ. PEAK:{' '}
+                          <strong className="text-[var(--ink)]">
+                            {row.projectedPeakDbTp !== null
+                              ? `${row.projectedPeakDbTp.toFixed(1)} dBTP`
+                              : 'N/A'}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                    <p className="text-[11px] text-[var(--ink-muted)] pt-2.5 border-t border-[var(--border-ink)]/20 leading-relaxed">
+                      {row.note}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* 5. OBJECTIVE TECHNICAL WARNINGS VS. SUBJECTIVE STYLISTIC NOTES (RULE 8) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Objective Technical Warnings */}
               <section
                 aria-label="Objective Technical Warnings"
-                className="studio-elevated squircle-outer p-6 space-y-4"
+                className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
               >
-                <div className="pb-3.5 studio-hairline-b">
-                  <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Objective Technical Warnings ({objectiveIssues.length})
+                <div className="px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[#FF3B1F] text-white">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest opacity-85">
+                    RULE 8 · DETERMINISTIC BOUNDARY ALERTS
+                  </div>
+                  <h2 className="font-display text-2xl uppercase mt-0.5">
+                    OBJECTIVE TECHNICAL WARNINGS ({objectiveIssues.length})
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Deterministic boundary violations (true-peak overshoots, clipping, negative phase correlation).
-                  </p>
                 </div>
 
                 {objectiveIssues.length === 0 ? (
-                  <p className="text-xs text-[var(--status-safe)] font-medium py-4">
-                    No objective technical boundary violations detected for this stage.
+                  <p className="p-5 font-mono text-xs font-bold uppercase text-[var(--ink)]">
+                    NO OBJECTIVE TECHNICAL BOUNDARY VIOLATIONS DETECTED FOR THIS STAGE.
                   </p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="divide-y-[1.5px] divide-[var(--border-ink)]">
                     {objectiveIssues.map((issue) => {
                       const isSelected = activeIssueId === issue.issue_id;
                       return (
@@ -977,50 +1114,39 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           key={issue.issue_id}
                           data-testid={`diagnostic-card-${issue.issue_id}`}
                           onClick={() => handleFocusIssue(issue.issue_id)}
-                          className={`relative p-4 squircle-inner border cursor-pointer transition-colors ${
+                          className={`p-5 cursor-pointer transition-colors ${
                             isSelected
-                              ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/55'
-                              : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
+                              ? 'bg-[#FFD600]/20 border-l-4 border-l-[#FF3B1F]'
+                              : 'bg-[var(--bg-canvas)] hover:bg-[var(--bg-surface)]'
                           }`}
                         >
-                          {isSelected && (
-                            <motion.span
-                              layoutId="active-issue-indicator"
-                              transition={STUDIO_SPRING}
-                              aria-hidden="true"
-                              className="absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full bg-[var(--accent-primary)]"
-                            />
-                          )}
-
-                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
+                          <div className="flex items-center justify-between gap-2 font-mono text-[10px] font-bold uppercase tabular-nums">
                             <span
-                              className={`font-semibold ${
+                              className={`px-1.5 py-0.5 border border-[var(--border-ink)] ${
                                 issue.severity === 'critical'
-                                  ? 'text-[var(--status-alert)]'
-                                  : 'text-[var(--status-caution)]'
+                                  ? 'bg-[#FF3B1F] text-white'
+                                  : 'bg-[#FFD600] text-[#0A0A0A]'
                               }`}
                             >
-                              {issue.severity} · {(issue.confidence * 100).toFixed(0)}% confidence
+                              {issue.severity} · {(issue.confidence * 100).toFixed(0)}%
                             </span>
-                            <span>{issue.domain}</span>
+                            <span className="text-[var(--ink-muted)]">{issue.domain}</span>
                           </div>
-                          <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
+                          <h3 className="font-ui text-sm font-bold uppercase text-[var(--ink)] mt-2">
                             {issue.title}
                           </h3>
-                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-[var(--text-primary)]">
+                          <div className="mt-2.5 space-y-1 font-mono text-[11px] tabular-nums border-y border-[var(--border-ink)]/20 py-2">
                             {issue.evidence.map((ev) => (
                               <div key={ev.metric_key} className="flex justify-between gap-2">
-                                <span className="text-[var(--text-secondary)]">
-                                  {ev.metric_key}
-                                </span>
-                                <span className="font-semibold">
-                                  {ev.measured_value} {ev.unit} (Target {ev.target_range})
+                                <span className="text-[var(--ink-muted)]">{ev.metric_key}</span>
+                                <span className="font-bold text-[var(--ink)]">
+                                  {ev.measured_value} {ev.unit} ({ev.target_range})
                                 </span>
                               </div>
                             ))}
                           </div>
-                          <p className="mt-2.5 text-xs text-[var(--text-secondary)] leading-relaxed">
-                            <strong className="text-[var(--text-primary)]">Fix: </strong>
+                          <p className="mt-2.5 text-xs text-[var(--ink-muted)] leading-relaxed">
+                            <strong className="text-[var(--ink)] uppercase">FIX: </strong>
                             {issue.learning_guide.what_to_try}
                           </p>
                         </article>
@@ -1030,26 +1156,25 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 )}
               </section>
 
-              {/* Subjective Stylistic Differences */}
               <section
                 aria-label="Subjective Stylistic Differences"
-                className="studio-elevated squircle-outer p-6 space-y-4"
+                className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
               >
-                <div className="pb-3.5 studio-hairline-b">
-                  <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Stylistic &amp; Genre Context Notes ({stylisticIssues.length})
+                <div className="px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[var(--ink)] text-[var(--bg-canvas)]">
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest opacity-75">
+                    RULE 8 · {GENRE_LABELS[genre].toUpperCase()} CONTEXT · JUDGE BY EAR
+                  </div>
+                  <h2 className="font-display text-2xl uppercase mt-0.5">
+                    STYLISTIC &amp; GENRE NOTES ({stylisticIssues.length})
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Tonal and macrodynamic traits compared against {GENRE_LABELS[genre]} conventions. Judge by ear.
-                  </p>
                 </div>
 
                 {stylisticIssues.length === 0 ? (
-                  <p className="text-xs text-[var(--text-secondary)] py-4">
-                    No notable tonal or macrodynamic deviations flagged for {GENRE_LABELS[genre]}.
+                  <p className="p-5 font-mono text-xs uppercase text-[var(--ink-muted)]">
+                    NO NOTABLE TONAL OR MACRODYNAMIC DEVIATIONS FLAGGED FOR {GENRE_LABELS[genre]}.
                   </p>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="divide-y-[1.5px] divide-[var(--border-ink)]">
                     {stylisticIssues.map((issue) => {
                       const isSelected = activeIssueId === issue.issue_id;
                       return (
@@ -1057,44 +1182,33 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           key={issue.issue_id}
                           data-testid={`diagnostic-card-${issue.issue_id}`}
                           onClick={() => handleFocusIssue(issue.issue_id)}
-                          className={`relative p-4 squircle-inner border cursor-pointer transition-colors ${
+                          className={`p-5 cursor-pointer transition-colors ${
                             isSelected
-                              ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/55'
-                              : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
+                              ? 'bg-[#FFD600]/20 border-l-4 border-l-[#0A0A0A]'
+                              : 'bg-[var(--bg-canvas)] hover:bg-[var(--bg-surface)]'
                           }`}
                         >
-                          {isSelected && (
-                            <motion.span
-                              layoutId="active-issue-indicator"
-                              transition={STUDIO_SPRING}
-                              aria-hidden="true"
-                              className="absolute left-0 top-3.5 bottom-3.5 w-1 rounded-r-full bg-[var(--accent-primary)]"
-                            />
-                          )}
-
-                          <div className="flex items-center justify-between gap-2 text-xs font-mono tabular-nums text-[var(--text-secondary)]">
-                            <span className="font-semibold text-[var(--accent-primary)]">
-                              stylistic · {(issue.confidence * 100).toFixed(0)}% confidence
+                          <div className="flex items-center justify-between gap-2 font-mono text-[10px] font-bold uppercase tabular-nums">
+                            <span className="px-1.5 py-0.5 border border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A]">
+                              STYLISTIC · {(issue.confidence * 100).toFixed(0)}%
                             </span>
-                            <span>{issue.domain}</span>
+                            <span className="text-[var(--ink-muted)]">{issue.domain}</span>
                           </div>
-                          <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
+                          <h3 className="font-ui text-sm font-bold uppercase text-[var(--ink)] mt-2">
                             {issue.title}
                           </h3>
-                          <div className="mt-2 space-y-1 text-xs font-mono tabular-nums text-[var(--text-primary)]">
+                          <div className="mt-2.5 space-y-1 font-mono text-[11px] tabular-nums border-y border-[var(--border-ink)]/20 py-2">
                             {issue.evidence.map((ev) => (
                               <div key={ev.metric_key} className="flex justify-between gap-2">
-                                <span className="text-[var(--text-secondary)]">
-                                  {ev.metric_key}
-                                </span>
-                                <span className="font-semibold">
+                                <span className="text-[var(--ink-muted)]">{ev.metric_key}</span>
+                                <span className="font-bold text-[var(--ink)]">
                                   {ev.measured_value} {ev.unit} ({ev.target_range})
                                 </span>
                               </div>
                             ))}
                           </div>
-                          <p className="mt-2.5 text-xs text-[var(--text-secondary)] leading-relaxed">
-                            <strong className="text-[var(--text-primary)]">Experiment: </strong>
+                          <p className="mt-2.5 text-xs text-[var(--ink-muted)] leading-relaxed">
+                            <strong className="text-[var(--ink)] uppercase">EXPERIMENT: </strong>
                             {issue.learning_guide.what_to_try}
                           </p>
                         </article>
@@ -1105,7 +1219,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </section>
             </div>
 
-            {/* 4b. Evidence-Bound AI Mix Mentor & Artist Vision */}
+            {/* 6. EVIDENCE-CITED AI MENTOR */}
             <AiMentorPanel
               report={report}
               genre={genre}
@@ -1119,37 +1233,37 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               onSelectEvidenceId={handleFocusIssue}
             />
 
-            {/* 5. Full Standardized DSP Parameter Table */}
+            {/* 7. COMPLETE MATHEMATICAL DSP TELEMETRY TABLE */}
             <section
               aria-label="Standardized Mathematical DSP Measurements Table"
-              className="studio-elevated squircle-outer p-6 space-y-4"
+              className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-3.5 studio-hairline-b">
+              <div className="px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Complete Mathematical DSP Telemetry
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                    RULE 2 · SOLE SOURCE OF TRUTH
+                  </div>
+                  <h2 className="font-display text-2xl uppercase text-[var(--ink)] mt-0.5">
+                    COMPLETE MATHEMATICAL DSP TELEMETRY
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    ITU-R BS.1770-4, EBU R128, IEC 60268, and Welch PSD measurements (sole source of truth).
-                  </p>
                 </div>
-                <span className="text-xs font-mono text-[var(--accent-primary)]">
-                  Source: {report.measurements.integrated_loudness.source}
+                <span className="font-mono text-[11px] font-bold uppercase px-2.5 py-1 border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-canvas)]">
+                  SOURCE: {report.measurements.integrated_loudness.source}
                 </span>
               </div>
 
-              <div className="overflow-x-auto squircle-inner border border-[var(--border-hairline-color)]">
+              <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
-                    <tr className="bg-[var(--bg-surface)] studio-hairline-b text-[var(--text-secondary)] font-semibold">
-                      <th className="py-2.5 px-4">Parameter</th>
-                      <th className="py-2.5 px-4">Standard</th>
-                      <th className="py-2.5 px-4 text-right">Measured</th>
-                      <th className="py-2.5 px-4 text-right">Target Range</th>
-                      <th className="py-2.5 px-4 text-right">Status</th>
+                    <tr className="bg-[var(--ink)] text-[var(--bg-canvas)] font-mono text-[10px] uppercase tracking-wider">
+                      <th className="py-2.5 px-4">PARAMETER</th>
+                      <th className="py-2.5 px-4">STANDARD</th>
+                      <th className="py-2.5 px-4 text-right">MEASURED</th>
+                      <th className="py-2.5 px-4 text-right">TARGET</th>
+                      <th className="py-2.5 px-4 text-right">STATUS</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[var(--border-hairline-color)]">
+                  <tbody className="divide-y divide-[var(--border-ink)]/25">
                     {(
                       [
                         ['Integrated Loudness', report.measurements.integrated_loudness, 'LUFS', 1],
@@ -1180,34 +1294,33 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 
                       const statusCls =
                         m.status === 'critical'
-                          ? 'text-[var(--status-alert)] font-semibold'
+                          ? 'bg-[#FF3B1F] text-white'
                           : m.status === 'warning'
-                          ? 'text-[var(--status-caution)] font-semibold'
+                          ? 'bg-[#FFD600] text-[#0A0A0A]'
                           : m.status === 'unavailable'
-                          ? 'text-[var(--text-secondary)] opacity-60'
-                          : 'text-[var(--status-safe)] font-medium';
+                          ? 'bg-[var(--bg-surface)] text-[var(--ink-muted)]'
+                          : 'bg-[var(--ink)] text-[var(--bg-canvas)]';
 
                       return (
-                        <tr
-                          key={label}
-                          className="hover:bg-[var(--bg-surface)]/70 transition-colors"
-                        >
-                          <td className="py-2.5 px-4 font-medium text-[var(--text-primary)]">
-                            {label}
-                          </td>
-                          <td className="py-2.5 px-4 text-[var(--text-secondary)]">
+                        <tr key={label} className="hover:bg-[var(--bg-surface)] transition-colors">
+                          <td className="py-2.5 px-4 font-semibold text-[var(--ink)]">{label}</td>
+                          <td className="py-2.5 px-4 font-mono text-[11px] text-[var(--ink-muted)]">
                             {m.standard}
                           </td>
-                          <td className="py-2.5 px-4 text-right font-mono tabular-nums font-semibold text-[var(--text-primary)]">
+                          <td className="py-2.5 px-4 text-right font-mono tabular-nums font-bold text-[var(--ink)]">
                             {m.status === 'unavailable' || m.value === null
                               ? 'N/A'
                               : formatMeasurement(m.value, unit, dec)}
                           </td>
-                          <td className="py-2.5 px-4 text-right font-mono tabular-nums text-[var(--text-secondary)]">
+                          <td className="py-2.5 px-4 text-right font-mono tabular-nums text-[var(--ink-muted)]">
                             {targetStr}
                           </td>
-                          <td className={`py-2.5 px-4 text-right capitalize ${statusCls}`}>
-                            {m.status}
+                          <td className="py-2.5 px-4 text-right">
+                            <span
+                              className={`inline-block px-2 py-0.5 font-mono text-[10px] font-bold uppercase ${statusCls}`}
+                            >
+                              {m.status}
+                            </span>
                           </td>
                         </tr>
                       );
@@ -1217,7 +1330,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               </div>
             </section>
 
-            {/* 6. Before / After Mix Revision Verification (v1 vs. v2) */}
+            {/* 8. BEFORE / AFTER REVISION DELTA (v1 -> v2) */}
             <RevisionDeltaPanel
               v1Report={report}
               v1File={selectedFile}
@@ -1231,7 +1344,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
         )}
       </AnimatePresence>
 
-      {/* Original Multitrack Stem Overlap Matrix (Rule 1 Hard-Locked when has_user_stems === false) */}
+      {/* 9. ORIGINAL MULTITRACK STEM OVERLAP MATRIX (RULE 1 HARD-LOCK) */}
       <StemOverlapMatrix
         consent={consent}
         primaryMixFile={selectedFile}
@@ -1239,52 +1352,48 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
         onStemReportChange={setStemReport}
       />
 
-      {/* Optional Collapsible DAW / Plugin Chain Context Drawer (Strictly user_reported_context) */}
+      {/* 10. OPTIONAL COLLAPSIBLE DAW / PLUGIN CONTEXT DRAWER */}
       <section
         aria-label="Optional DAW and Plugin Chain Context"
         data-testid="daw-context-drawer"
-        className="studio-elevated squircle-outer overflow-hidden"
+        className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
       >
         <button
           type="button"
           onClick={() => setDawDrawerOpen((open) => !open)}
           aria-expanded={dawDrawerOpen}
           data-testid="daw-context-toggle"
-          className="w-full px-5 py-4 flex flex-wrap items-center justify-between gap-3 text-left hover:bg-[var(--bg-surface)]/70 transition-colors cursor-pointer"
+          className="w-full px-5 py-4 flex flex-wrap items-center justify-between gap-3 text-left bg-[var(--bg-surface)] hover:bg-[#FFD600]/20 transition-colors cursor-pointer"
         >
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-8 h-8 squircle-inner studio-surface flex items-center justify-center shrink-0">
-              <SlidersHorizontal className="w-4 h-4 text-[var(--accent-primary)]" />
+            <div className="w-9 h-9 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] flex items-center justify-center shrink-0">
+              <SlidersHorizontal className="w-4 h-4 text-[var(--ink)]" />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-bold text-[var(--text-primary)]">
-                  DAW &amp; Plugin Chain Context (Optional)
+                <h2 className="font-ui text-sm font-bold uppercase text-[var(--ink)]">
+                  DAW &amp; PLUGIN CHAIN CONTEXT (OPTIONAL)
                 </h2>
                 <span
                   data-testid="daw-context-source-tag"
-                  className="inline-flex items-center px-2 py-0.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[10px] font-mono text-[var(--text-secondary)]"
+                  className="px-2 py-0.5 border border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[10px] font-mono font-bold text-[var(--ink)]"
                 >
                   user_reported_context
                 </span>
                 {hasDawNotes && (
-                  <span className="text-[11px] font-mono text-[var(--accent-primary)]">
-                    · Session notes recorded
+                  <span className="px-2 py-0.5 bg-[#FFD600] text-[#0A0A0A] text-[10px] font-mono font-bold uppercase">
+                    NOTES RECORDED
                   </span>
                 )}
               </div>
-              <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                Log your DAW, mix-bus routing, or plugin chain notes. Kept strictly separate from measured DSP metrics.
+              <p className="text-xs text-[var(--ink-muted)] mt-0.5">
+                Log DAW, bus routing, or plugin chain notes. Strictly isolated from DSP metrics.
               </p>
             </div>
           </div>
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)] shrink-0">
-            <span>{dawDrawerOpen ? 'Collapse' : 'Expand'}</span>
-            <ChevronDown
-              className={`w-4 h-4 transition-transform duration-200 ${
-                dawDrawerOpen ? 'rotate-180' : ''
-              }`}
-            />
+
+          <span className="w-8 h-8 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] flex items-center justify-center shrink-0">
+            {dawDrawerOpen ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
           </span>
         </button>
 
@@ -1295,17 +1404,17 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.24, ease: STUDIO_EASE }}
+              transition={{ duration: 0.22, ease: BRUT_EASE }}
               className="overflow-hidden"
             >
-              <div className="px-5 pb-5 pt-4 studio-hairline-t bg-[var(--bg-surface)] space-y-4">
-                <div className="squircle-inner studio-elevated px-3.5 py-2.5 flex items-start gap-2 text-xs text-[var(--text-secondary)]">
-                  <Info className="w-4 h-4 text-[var(--accent-primary)] shrink-0 mt-0.5" />
+              <div className="p-5 border-t-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] space-y-4">
+                <div className="border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-surface)] px-3.5 py-2.5 flex items-start gap-2 text-xs text-[var(--ink-muted)]">
+                  <Info className="w-4 h-4 text-[var(--ink)] shrink-0 mt-0.5" />
                   <div>
-                    <span className="font-mono text-[11px] font-semibold text-[var(--text-primary)]">
+                    <span className="font-mono text-[11px] font-bold text-[var(--ink)]">
                       DATA PROVENANCE BOUNDARY (user_reported_context):
                     </span>{' '}
-                    Entries below are self-reported session notes only. They never alter, override, or fabricate mathematical DSP measurements (Rule 2).
+                    Entries below are self-reported session notes only. They never alter or fabricate DSP measurements (Rule 2).
                   </div>
                 </div>
 
@@ -1313,16 +1422,16 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                   <div>
                     <label
                       htmlFor="daw-name-select"
-                      className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                      className="block font-mono text-[11px] font-bold uppercase text-[var(--ink)] mb-1.5"
                     >
-                      DAW Environment
+                      DAW ENVIRONMENT
                     </label>
                     <select
                       id="daw-name-select"
                       data-testid="daw-name-select"
                       value={dawContext.daw_name}
                       onChange={(e) => updateDawContext({ daw_name: e.target.value })}
-                      className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+                      className="w-full border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--ink)] focus:outline-none"
                     >
                       <option value="">Select DAW (optional)...</option>
                       {DAW_OPTIONS.filter(Boolean).map((daw) => (
@@ -1336,9 +1445,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                   <div>
                     <label
                       htmlFor="daw-bus-routing"
-                      className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                      className="block font-mono text-[11px] font-bold uppercase text-[var(--ink)] mb-1.5"
                     >
-                      Bus Routing / Gain Staging Notes
+                      BUS ROUTING / GAIN STAGING NOTES
                     </label>
                     <input
                       id="daw-bus-routing"
@@ -1347,7 +1456,7 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                       value={dawContext.bus_routing}
                       onChange={(e) => updateDawContext({ bus_routing: e.target.value })}
                       placeholder="e.g., Drum Bus -> Glue Comp (-2 dB GR) -> Stereo Out"
-                      className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/65 focus:outline-none focus:border-[var(--accent-primary)]"
+                      className="w-full border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--ink)] placeholder:text-[var(--ink-muted)]/65 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -1355,9 +1464,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 <div>
                   <label
                     htmlFor="daw-plugin-chain"
-                    className="block text-xs font-medium text-[var(--text-primary)] mb-1.5"
+                    className="block font-mono text-[11px] font-bold uppercase text-[var(--ink)] mb-1.5"
                   >
-                    Active Mix-Bus / Mastering Plugin Chain Notes
+                    ACTIVE MIX-BUS / MASTERING PLUGIN CHAIN NOTES
                   </label>
                   <textarea
                     id="daw-plugin-chain"
@@ -1365,15 +1474,15 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                     rows={2}
                     value={dawContext.plugin_chain_notes}
                     onChange={(e) => updateDawContext({ plugin_chain_notes: e.target.value })}
-                    placeholder="e.g., Pro-Q3 high-pass 30 Hz -> SSL Bus Comp 4:1 -> Pro-L2 ceiling -1.0 dBTP (bypassed for mix check)"
-                    className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/65 focus:outline-none focus:border-[var(--accent-primary)]"
+                    placeholder="e.g., Pro-Q3 HPF 30 Hz -> SSL Bus Comp 4:1 -> Pro-L2 ceiling -1.0 dBTP"
+                    className="w-full border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--ink)] placeholder:text-[var(--ink-muted)]/65 focus:outline-none"
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] font-mono text-[var(--text-secondary)]">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 font-mono text-[11px] text-[var(--ink-muted)]">
                   <span>
-                    Tag: <strong className="text-[var(--text-primary)]">{dawContext.source_tag}</strong>
-                    {dawContext.updated_at ? ` · Updated in session` : ' · Empty'}
+                    TAG: <strong className="text-[var(--ink)]">{dawContext.source_tag}</strong>
+                    {dawContext.updated_at ? ' · UPDATED IN SESSION' : ' · EMPTY'}
                   </span>
                   {hasDawNotes && (
                     <button
@@ -1385,9 +1494,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                           setLocalDawContext(DEFAULT_DAW_CONTEXT);
                         }
                       }}
-                      className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] underline underline-offset-2 cursor-pointer"
+                      className="font-bold uppercase text-[var(--ink)] underline underline-offset-2 cursor-pointer"
                     >
-                      Clear Session Notes
+                      CLEAR SESSION NOTES
                     </button>
                   )}
                 </div>

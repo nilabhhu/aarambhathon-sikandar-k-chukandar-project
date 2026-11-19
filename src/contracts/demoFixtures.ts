@@ -5,6 +5,7 @@ import {
   InterfaceMode,
   MixStage,
 } from './analysisContract';
+import { scaleAndClampTimestamp } from '../audio/shortTermLufsMath';
 
 export const GENRE_LABELS: Record<GenreId, string> = {
   indie_rock: 'Indie Rock / Alternative',
@@ -39,6 +40,15 @@ export function generatePhase1DemoReport(params: {
   custom_file_size_bytes?: number;
 }): AnalysisReport {
   const isUnmastered = params.mix_stage === 'unmastered_mix';
+  const CANONICAL_DEMO_DURATION = 198.4;
+  const durationSec =
+    params.custom_duration_sec && params.custom_duration_sec > 0
+      ? params.custom_duration_sec
+      : CANONICAL_DEMO_DURATION;
+  const cue = (start_sec: number, end_sec: number, label: string) => ({
+    ...scaleAndClampTimestamp(start_sec, end_sec, CANONICAL_DEMO_DURATION, durationSec),
+    label,
+  });
 
   return {
     schema_version: '2.0.0',
@@ -86,7 +96,7 @@ export function generatePhase1DemoReport(params: {
           ? 'glass_harbor_mix_v3_premaster_24bit.wav'
           : 'glass_harbor_master_candidate_v1.wav'),
       format: 'WAV',
-      duration_seconds: params.custom_duration_sec || 198.4,
+      duration_seconds: durationSec,
       sample_rate_hz: params.custom_sample_rate || 48000,
       bit_depth: 24,
       channels: 2,
@@ -295,8 +305,8 @@ export function generatePhase1DemoReport(params: {
           ? 'Insufficient Pre-Master True-Peak Headroom (-0.4 dBTP)'
           : 'Inter-Sample True-Peak Clipping Detected (+0.6 dBTP)',
         timestamps: [
-          { start_sec: 42.5, end_sec: 58.0, label: 'Chorus 1 Drum & Vocal Transient Peak' },
-          { start_sec: 134.0, end_sec: 152.5, label: 'Chorus 2 Full Mix Climax' },
+          cue(42.5, 58.0, 'Chorus 1 Drum & Vocal Transient Peak'),
+          cue(134.0, 152.5, 'Chorus 2 Full Mix Climax'),
         ],
         evidence: [
           {
@@ -335,7 +345,7 @@ export function generatePhase1DemoReport(params: {
         confidence: 0.91,
         title: 'Momentary Stereo Phase Cancellation in Bridge (-0.18 correlation)',
         timestamps: [
-          { start_sec: 108.0, end_sec: 124.5, label: 'Bridge Wide Synth Pad & Chorus Bass' },
+          cue(108.0, 124.5, 'Bridge Wide Synth Pad & Chorus Bass'),
         ],
         evidence: [
           {
@@ -365,7 +375,7 @@ export function generatePhase1DemoReport(params: {
         confidence: 0.78,
         title: 'Warm Low-Mid Density in 200–500 Hz Band (-11.2 dBFS)',
         timestamps: [
-          { start_sec: 18.0, end_sec: 42.0, label: 'Verse 1 Layered Rhythm Guitars & Keys' },
+          cue(18.0, 42.0, 'Verse 1 Layered Rhythm Guitars & Keys'),
         ],
         evidence: [
           {
@@ -395,7 +405,7 @@ export function generatePhase1DemoReport(params: {
         confidence: 0.86,
         title: 'Harsh Upper-Mid Peak Near 4.0 kHz (-12.1 dBFS)',
         timestamps: [
-          { start_sec: 44.0, end_sec: 61.5, label: 'Chorus 1 Cymbals & Lead Vocal Bite' },
+          cue(44.0, 61.5, 'Chorus 1 Cymbals & Lead Vocal Bite'),
         ],
         evidence: [
           {
@@ -425,7 +435,7 @@ export function generatePhase1DemoReport(params: {
         confidence: 0.82,
         title: 'Compact Loudness Range Across Arrangement (4.2 LU)',
         timestamps: [
-          { start_sec: 42.5, end_sec: 95.0, label: 'Chorus 1 into Verse 2 Transition' },
+          cue(42.5, 95.0, 'Chorus 1 into Verse 2 Transition'),
         ],
         evidence: [
           {

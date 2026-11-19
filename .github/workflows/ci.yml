@@ -1,4 +1,4 @@
-name: Phase 2 Architecture, Mathematical DSP & Contract CI
+name: MixLearn Studio CI — DSP, Contracts & Build
 
 on:
   push:

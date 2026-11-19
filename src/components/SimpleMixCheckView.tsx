@@ -9,26 +9,21 @@ import {
 } from '../contracts/analysisContract';
 import { GENRE_LABELS, MIX_STAGE_LABELS } from '../contracts/demoFixtures';
 import { useStudioAudioEngine, useStudioAudioState } from '../audio/StudioAudioContext';
-import { WaveformInspector } from './WaveformInspector';
-import { SpectralTonalBalanceGraph } from './SpectralTonalBalanceGraph';
+import { LiveSpectrumAnalyzer } from './LiveSpectrumAnalyzer';
 import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import { AiMentorPanel } from './AiMentorPanel';
-import {
-  STUDIO_EASE,
-  STUDIO_SPRING,
-  TACTILE_TAP,
-} from '../lib/motion';
+import { BRUT_EASE, BRUT_SPRING, TACTILE_TAP } from '../lib/motion';
 import {
   Upload,
-  ArrowRight,
+  ArrowUpRight,
   Volume2,
   Activity,
-  Layers,
-  Sliders,
   RotateCcw,
   X,
   FileAudio,
-  ChevronDown,
+  Plus,
+  Play,
+  Check,
 } from 'lucide-react';
 
 interface SimpleMixCheckViewProps {
@@ -53,6 +48,21 @@ interface SimpleMixCheckViewProps {
   analysisStageIndex?: number;
   errorMessage?: string | null;
   onCancelAnalysis?: () => void;
+}
+
+type TrafficLevel = 'pass' | 'caution' | 'alert' | 'neutral';
+
+function trafficBadgeClasses(level: TrafficLevel): string {
+  switch (level) {
+    case 'pass':
+      return 'bg-[#0A0A0A] text-[#FFD600] border-[#0A0A0A] dark:bg-[#FFD600] dark:text-[#0A0A0A] dark:border-[#FFD600]';
+    case 'caution':
+      return 'bg-[#FFD600] text-[#0A0A0A] border-[#0A0A0A]';
+    case 'alert':
+      return 'bg-[#FF3B1F] text-white border-[#0A0A0A] dark:border-white';
+    default:
+      return 'bg-[var(--bg-surface)] text-[var(--ink-muted)] border-[var(--border-ink)]';
+  }
 }
 
 export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
@@ -93,24 +103,15 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
     report?.issues?.[0]?.issue_id ?? null
   );
-  const [spectrumFlashNonce, setSpectrumFlashNonce] = useState<number>(0);
-  const [activeTimestamp, setActiveTimestamp] = useState<{
-    start_sec: number;
-    end_sec: number;
-    label: string;
-  } | null>(report?.issues?.[0]?.timestamps?.[0] ?? null);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Sync initial active marker & default open guide for the first recommendation
   useEffect(() => {
     const first = report?.issues?.[0];
     setActiveIssueId(first?.issue_id ?? null);
-    setActiveTimestamp(first?.timestamps?.[0] ?? null);
     const firstRecId = report?.recommendations?.[0]?.recommendation_id;
     setExpandedGuides(firstRecId ? { [firstRecId]: true } : {});
   }, [report?.report_id]);
 
-  // Auto-start analysis immediately when file is picked
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -161,117 +162,244 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
     setExpandedGuides((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleFocusIssue = (issueId: string) => {
+  const handleFocusIssue = (issueId: string, audition = false) => {
     setActiveIssueId(issueId);
-    setSpectrumFlashNonce((n) => n + 1);
+    const matchingRec = report?.recommendations.find((r) => r.linked_issue_id === issueId);
+    if (matchingRec) {
+      setExpandedGuides((prev) => ({ ...prev, [matchingRec.recommendation_id]: true }));
+    }
     const found = report?.issues.find((i) => i.issue_id === issueId);
     if (found?.timestamps?.[0]) {
       const ts = found.timestamps[0];
-      setActiveTimestamp(ts);
       engine.setLoopRegion({
         startSec: ts.start_sec,
         endSec: Math.max(ts.start_sec + 1.0, ts.end_sec),
         label: ts.label,
       });
-      if (audioState.hasPrimaryMix) {
-        engine.seek(ts.start_sec, true);
+      if (audition && audioState.hasPrimaryMix) {
+        engine.seekAndPlay(ts.start_sec).catch(() => {});
       }
+    } else if (audition && audioState.hasPrimaryMix) {
+      engine.togglePlay();
     }
   };
 
   const isUnmastered = mixStage === 'unmastered_mix';
 
-  // --- Metric 1: Loudness (LUFS) ---
+  // 1. VOLUME
   const lufsVal = report?.measurements?.integrated_loudness?.value;
   const lufsMin = isUnmastered ? -18.0 : -14.0;
   const lufsMax = isUnmastered ? -14.0 : -9.0;
-  const lufsStatus =
+  const volumeTile: {
+    status: string;
+    plain: string;
+    level: TrafficLevel;
+    metric: string;
+    target: string;
+  } =
     lufsVal === null || lufsVal === undefined
-      ? { label: 'No Signal', color: 'text-[var(--text-secondary)]' }
+      ? {
+          status: 'NO SIGNAL',
+          plain: 'No audible loudness detected.',
+          level: 'neutral',
+          metric: '—',
+          target: `${lufsMin} to ${lufsMax} LUFS`,
+        }
       : lufsVal >= lufsMin && lufsVal <= lufsMax
-      ? { label: 'Within Target', color: 'text-[var(--status-safe)]' }
+      ? {
+          status: 'ON TARGET',
+          plain: isUnmastered
+            ? 'Healthy mix volume with room for mastering.'
+            : 'Competitive release volume for streaming.',
+          level: 'pass',
+          metric: `${lufsVal.toFixed(1)} LUFS`,
+          target: `Target ${lufsMin} to ${lufsMax} LUFS`,
+        }
       : lufsVal > lufsMax
-      ? { label: 'Too Loud', color: 'text-[var(--status-alert)]' }
-      : { label: 'Too Quiet', color: 'text-[var(--status-caution)]' };
+      ? {
+          status: 'TOO LOUD',
+          plain: isUnmastered
+            ? 'Pushing too hot for an unmastered bounce.'
+            : 'Louder than streaming targets; may be turned down.',
+          level: 'alert',
+          metric: `${lufsVal.toFixed(1)} LUFS`,
+          target: `Target ${lufsMin} to ${lufsMax} LUFS`,
+        }
+      : {
+          status: 'A BIT QUIET',
+          plain: 'Lower than typical target range for this stage.',
+          level: 'caution',
+          metric: `${lufsVal.toFixed(1)} LUFS`,
+          target: `Target ${lufsMin} to ${lufsMax} LUFS`,
+        };
 
-  // --- Metric 2: True Peak Headroom (dBTP) ---
+  // 2. CLIPPING SAFETY
   const tpVal = report?.measurements?.true_peak_max?.value;
   const tpTarget = isUnmastered ? -3.0 : -1.0;
-  const tpStatus =
+  const clippingTile: {
+    status: string;
+    plain: string;
+    level: TrafficLevel;
+    metric: string;
+    target: string;
+  } =
     tpVal === null || tpVal === undefined
-      ? { label: 'No Signal', color: 'text-[var(--text-secondary)]' }
+      ? {
+          status: 'NO SIGNAL',
+          plain: 'True peak unavailable.',
+          level: 'neutral',
+          metric: '—',
+          target: `Ceiling ≤ ${tpTarget.toFixed(1)} dBTP`,
+        }
       : tpVal <= tpTarget
-      ? { label: 'Safe Ceiling', color: 'text-[var(--status-safe)]' }
-      : { label: 'Clipping Risk', color: 'text-[var(--status-alert)]' };
+      ? {
+          status: 'SAFE HEADROOM',
+          plain: 'Clean peaks with zero digital distortion risk.',
+          level: 'pass',
+          metric: `${tpVal.toFixed(1)} dBTP`,
+          target: `Ceiling ≤ ${tpTarget.toFixed(1)} dBTP`,
+        }
+      : {
+          status: 'CLIPPING RISK',
+          plain: 'Peaks exceed safe ceiling. Lower master fader or ceiling.',
+          level: 'alert',
+          metric: `${tpVal.toFixed(1)} dBTP`,
+          target: `Ceiling ≤ ${tpTarget.toFixed(1)} dBTP`,
+        };
 
-  // --- Metric 3: Mono & Phase Safety ---
+  // 3. PHONE / MONO SAFETY
   const isMono = report ? report.file_metadata.channels === 1 : false;
   const phaseCorr = report?.measurements?.phase_correlation_mean?.value;
   const phaseMin = report?.measurements?.phase_correlation_min?.value;
-  const phaseStatus = isMono
-    ? { label: 'Mono Safe', color: 'text-[var(--status-safe)]' }
+  const monoTile: {
+    status: string;
+    plain: string;
+    level: TrafficLevel;
+    metric: string;
+    target: string;
+  } = isMono
+    ? {
+        status: 'MONO SAFE',
+        plain: 'Single-channel bounce folds identically on phones.',
+        level: 'pass',
+        metric: 'MONO (+1.00)',
+        target: 'Phase ≥ +0.20',
+      }
     : phaseMin !== null && phaseMin !== undefined && phaseMin < 0.0
-    ? { label: 'Phase Cancellation', color: 'text-[var(--status-alert)]' }
+    ? {
+        status: 'PHASE RISK',
+        plain: 'Some wide elements may thin out on phone speakers.',
+        level: 'alert',
+        metric:
+          phaseCorr !== null && phaseCorr !== undefined
+            ? `${phaseCorr >= 0 ? '+' : ''}${phaseCorr.toFixed(2)} CORR`
+            : '—',
+        target: `Min ${phaseMin.toFixed(2)} (< 0.00)`,
+      }
     : phaseCorr !== null && phaseCorr !== undefined && phaseCorr >= 0.2
-    ? { label: 'Mono Safe', color: 'text-[var(--status-safe)]' }
-    : { label: 'Check Phase', color: 'text-[var(--status-caution)]' };
+    ? {
+        status: 'MONO SAFE',
+        plain: 'Stereo image holds together cleanly on phones & clubs.',
+        level: 'pass',
+        metric: `+${phaseCorr.toFixed(2)} CORR`,
+        target: 'Phase ≥ +0.20',
+      }
+    : {
+        status: 'CHECK MONO',
+        plain: 'Borderline stereo width—double-check in mono.',
+        level: 'caution',
+        metric:
+          phaseCorr !== null && phaseCorr !== undefined
+            ? `${phaseCorr >= 0 ? '+' : ''}${phaseCorr.toFixed(2)} CORR`
+            : '—',
+        target: 'Phase ≥ +0.20',
+      };
 
-  // --- Metric 4: Crest / Dynamics ---
+  // 4. PUNCH & DYNAMICS
   const crestVal = report?.measurements?.crest_factor?.value;
-  const crestStatus =
+  const punchTile: {
+    status: string;
+    plain: string;
+    level: TrafficLevel;
+    metric: string;
+    target: string;
+  } =
     crestVal === null || crestVal === undefined
-      ? { label: 'No Signal', color: 'text-[var(--text-secondary)]' }
+      ? {
+          status: 'NO SIGNAL',
+          plain: 'Dynamics measurement unavailable.',
+          level: 'neutral',
+          metric: '—',
+          target: '8.0 to 18.0 dB',
+        }
       : crestVal >= 8.0 && crestVal <= 18.0
-      ? { label: 'Balanced', color: 'text-[var(--status-safe)]' }
+      ? {
+          status: 'BALANCED PUNCH',
+          plain: 'Drums and transients breathe naturally.',
+          level: 'pass',
+          metric: `${crestVal.toFixed(1)} dB CREST`,
+          target: 'Sweet spot 8–18 dB',
+        }
       : crestVal < 8.0
-      ? { label: 'Compressed', color: 'text-[var(--status-caution)]' }
-      : { label: 'Wide Dynamics', color: 'text-[var(--status-safe)]' };
+      ? {
+          status: 'OVER-COMPRESSED',
+          plain: 'Transients are squashed—ease limiter or bus compression.',
+          level: 'caution',
+          metric: `${crestVal.toFixed(1)} dB CREST`,
+          target: 'Sweet spot 8–18 dB',
+        }
+      : {
+          status: 'WIDE DYNAMICS',
+          plain: 'Very open peaks—gentle glue compression can help.',
+          level: 'pass',
+          metric: `${crestVal.toFixed(1)} dB CREST`,
+          target: 'Sweet spot 8–18 dB',
+        };
 
-  // Max 3 prioritized action cards
   const topRecommendations = report ? report.recommendations.slice(0, 3) : [];
-
   const viewStateKey = isAnalyzing ? 'analyzing' : report ? `report-${report.report_id}` : 'empty';
 
   return (
     <div className="space-y-6">
-      {/* Header & Controls Section */}
+      {/* HEADER & UPLOAD CONFIGURATION GRID */}
       <section
         aria-label="Simple Mix Check Configuration"
-        className="studio-elevated squircle-outer p-6"
+        className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
       >
-        <div className="flex flex-wrap items-baseline justify-between gap-4 pb-4 studio-hairline-b">
+        <div className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[var(--bg-surface)]">
           <div>
-            <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-              Simple Mix Check
+            <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+              01 · BEGINNER QUICK CHECK · /SIMPLE
+            </div>
+            <h1 className="font-display text-3xl sm:text-4xl uppercase text-[var(--ink)] mt-0.5">
+              SIMPLE MIX CHECK
             </h1>
-            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-              Upload your mix or master bounce for clear DSP metrics, spectral balance, and prioritized DAW steps.
-            </p>
           </div>
-          <button
+          <motion.button
             type="button"
+            whileTap={TACTILE_TAP}
             onClick={onSwitchToAdvanced}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--accent-primary)] hover:underline underline-offset-4 shrink-0 whitespace-nowrap cursor-pointer"
+            className="group inline-flex items-center gap-1.5 px-4 py-2 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] font-ui text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer whitespace-nowrap"
           >
-            <span>Open Advanced Workbench</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+            <span>OPEN ADVANCED WORKBENCH</span>
+            <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
+          </motion.button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mt-5">
-          {/* 1. Select Genre */}
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-3 divide-y-[1.5px] md:divide-y-0 md:divide-x-[1.5px] divide-[var(--border-ink)]">
+          {/* 1. Genre */}
+          <div className="p-4 sm:p-5">
             <label
               htmlFor="simple-genre-select"
-              className="block text-xs font-semibold text-[var(--text-primary)] mb-1.5"
+              className="block font-mono text-[11px] font-bold uppercase tracking-wider text-[var(--ink)] mb-2"
             >
-              1. Genre
+              01 / GENRE TARGET
             </label>
             <select
               id="simple-genre-select"
               value={genre}
               onChange={(e) => onChangeGenre(e.target.value as GenreId)}
-              className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-medium text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)]"
+              className="w-full border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] px-3 py-2.5 text-xs font-bold uppercase text-[var(--ink)] focus:outline-none focus:bg-[#FFD600] focus:text-[#0A0A0A]"
             >
               {(Object.keys(GENRE_LABELS) as GenreId[]).map((gKey) => (
                 <option key={gKey} value={gKey}>
@@ -281,13 +409,13 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             </select>
           </div>
 
-          {/* 2. Select Mix Stage */}
-          <div>
-            <span className="block text-xs font-semibold text-[var(--text-primary)] mb-1.5">
-              2. Stage
+          {/* 2. Stage */}
+          <div className="p-4 sm:p-5">
+            <span className="block font-mono text-[11px] font-bold uppercase tracking-wider text-[var(--ink)] mb-2">
+              02 / MIX STAGE
             </span>
             <div
-              className="grid grid-cols-2 gap-1 p-1 bg-[var(--bg-surface)] squircle-inner border border-[var(--border-hairline-color)]"
+              className="grid grid-cols-2 border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] divide-x-2 divide-[var(--border-ink)]"
               role="group"
               aria-label="Select Stage"
             >
@@ -300,17 +428,17 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                     whileTap={TACTILE_TAP}
                     onClick={() => onChangeMixStage(stage)}
                     aria-pressed={active}
-                    className={`relative px-3 py-1.5 squircle-inner text-xs font-medium transition-colors text-center whitespace-nowrap cursor-pointer ${
+                    className={`relative px-2 py-2.5 text-[11px] font-ui font-bold uppercase tracking-wider text-center whitespace-nowrap transition-colors cursor-pointer ${
                       active
-                        ? 'text-white font-semibold'
-                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        ? 'text-[var(--bg-canvas)]'
+                        : 'text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
                     }`}
                   >
                     {active && (
                       <motion.span
                         layoutId="simple-stage-pill"
-                        transition={STUDIO_SPRING}
-                        className="absolute inset-0 bg-[var(--accent-primary)] squircle-inner"
+                        transition={BRUT_SPRING}
+                        className="absolute inset-0 bg-[var(--ink)]"
                       />
                     )}
                     <span className="relative z-10">{MIX_STAGE_LABELS[stage].title}</span>
@@ -320,49 +448,44 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             </div>
           </div>
 
-          {/* 3. Audio File Selector & Re-Analyze Mix Trigger */}
-          <div>
+          {/* 3. Audio Bounce Upload */}
+          <div className="p-4 sm:p-5">
             <label
               htmlFor="simple-audio-upload"
-              className="block text-xs font-semibold text-[var(--text-primary)] mb-1.5"
+              className="block font-mono text-[11px] font-bold uppercase tracking-wider text-[var(--ink)] mb-2"
             >
-              3. Audio Bounce (WAV, FLAC, AIFF, MP3)
+              03 / AUDIO BOUNCE (.WAV, .FLAC, .AIFF, .MP3)
             </label>
-            <div className="flex items-center gap-2">
+            <div className="flex items-stretch gap-2">
               <label
                 htmlFor="simple-audio-upload"
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`flex-1 flex items-center justify-between gap-2 squircle-inner border border-dashed px-3 py-2 text-xs cursor-pointer transition-colors truncate ${
+                className={`flex-1 flex items-center justify-between gap-2 border-2 border-dashed px-3 py-2 text-xs cursor-pointer transition-colors min-w-0 ${
                   isDragOver
-                    ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
-                    : selectedFile
-                    ? 'border-[var(--border-active-color)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
-                    : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--border-active-color)]'
+                    ? 'border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A]'
+                    : 'border-[var(--border-ink)] bg-[var(--bg-surface)] text-[var(--ink)] hover:bg-[#FFD600] hover:text-[#0A0A0A]'
                 }`}
               >
-                <span className="truncate font-mono">
-                  {selectedFile ? selectedFile.name : 'Choose Audio File (.wav, .flac, .aiff, .mp3)'}
+                <span className="truncate font-mono text-[11px]">
+                  {selectedFile ? selectedFile.name : 'DROP OR BROWSE AUDIO...'}
                 </span>
-                <span className="inline-flex items-center gap-1 font-semibold text-[var(--accent-primary)] shrink-0">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{selectedFile ? 'Change' : 'Browse'}</span>
-                </span>
+                <Upload className="w-3.5 h-3.5 shrink-0" />
               </label>
 
               {selectedFile && (
-                <div className="flex items-center gap-1.5 shrink-0">
+                <div className="flex items-stretch gap-1.5 shrink-0">
                   <motion.button
                     type="button"
                     whileTap={TACTILE_TAP}
                     onClick={handleReAnalyze}
                     disabled={isAnalyzing}
-                    className="px-3 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors disabled:opacity-50 inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                     title="Re-run DSP analysis with current genre/stage targets"
+                    className="px-3 py-2 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-mono text-[11px] font-bold uppercase transition-colors disabled:opacity-50 inline-flex items-center gap-1 cursor-pointer"
                   >
                     <RotateCcw className="w-3 h-3" />
-                    <span>Re-Analyze</span>
+                    <span className="hidden sm:inline">RE-RUN</span>
                   </motion.button>
                   {onClearFile && (
                     <motion.button
@@ -370,11 +493,10 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                       whileTap={TACTILE_TAP}
                       onClick={onClearFile}
                       disabled={isAnalyzing}
-                      className="px-2.5 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] text-xs font-medium transition-colors inline-flex items-center gap-1 whitespace-nowrap cursor-pointer"
                       title="Clear and upload another track"
+                      className="px-2.5 py-2 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[#FF3B1F] hover:text-white font-mono text-[11px] font-bold uppercase transition-colors inline-flex items-center cursor-pointer"
                     >
                       <X className="w-3.5 h-3.5" />
-                      <span>Clear</span>
                     </motion.button>
                   )}
                 </div>
@@ -392,7 +514,7 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
         </div>
       </section>
 
-      {/* AnimatePresence Transition: Empty Dropzone -> DSP Loading Scanner -> Populated Results */}
+      {/* BODY STATE TRANSITION: LOADING -> EMPTY -> RESULTS */}
       <AnimatePresence mode="wait">
         {isAnalyzing && (
           <DspAnalysisLoadingScreen
@@ -414,37 +536,31 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{
-              opacity: 1,
-              y: 0,
-              scale: isDragOver ? 1.008 : 1,
-            }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
-            transition={isDragOver ? STUDIO_SPRING : { duration: 0.28, ease: STUDIO_EASE }}
-            className={`squircle-outer border border-dashed p-12 text-center space-y-4 transition-colors ${
-              isDragOver
-                ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)]'
-                : 'border-[var(--border-hairline-color)] bg-[var(--bg-elevated)]'
+            transition={{ duration: 0.24, ease: BRUT_EASE }}
+            className={`border-2 border-[var(--border-ink)] p-10 sm:p-14 text-center space-y-5 transition-colors ${
+              isDragOver ? 'bg-[#FFD600] text-[#0A0A0A]' : 'bg-[var(--bg-canvas)]'
             }`}
           >
-            <div className="w-14 h-14 squircle-inner bg-[var(--accent-soft)] border border-[var(--border-active-color)] text-[var(--accent-primary)] mx-auto flex items-center justify-center">
-              <Volume2 className="w-6 h-6" />
+            <div className="w-16 h-16 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] mx-auto flex items-center justify-center">
+              <Volume2 className="w-7 h-7" />
             </div>
-            <div className="max-w-md mx-auto space-y-2">
-              <h2 className="text-lg font-bold text-[var(--text-primary)]">
-                No Audio Loaded Yet
+            <div className="max-w-lg mx-auto space-y-2">
+              <h2 className="font-display text-3xl sm:text-4xl uppercase text-[var(--ink)]">
+                NO AUDIO LOADED YET
               </h2>
-              <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-                Drop an audio bounce here or pick a file (.WAV, .FLAC, .AIFF, or .MP3) above to run real mathematical DSP analysis against your selected genre and stage.
+              <p className="text-xs sm:text-sm text-[var(--ink-muted)] leading-relaxed">
+                Drop your mix or master bounce (.WAV, .FLAC, .AIFF, .MP3) to run real mathematical DSP checks in plain English—or load a calibrated demo track to explore immediately.
               </p>
-              <div className="pt-3 flex flex-wrap items-center justify-center gap-2.5">
+              <div className="pt-4 flex flex-wrap items-center justify-center gap-3">
                 <label
                   htmlFor="simple-audio-upload"
-                  className="inline-flex items-center gap-2 px-4 py-2 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-xs font-semibold cursor-pointer transition-colors"
+                  className="inline-flex items-center gap-2 px-5 py-3 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] font-ui text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
                 >
-                  <Upload className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
-                  <span>Choose Audio Bounce</span>
+                  <Upload className="w-4 h-4" />
+                  <span>CHOOSE AUDIO BOUNCE</span>
                 </label>
                 {onLoadDemoTrack && (
                   <motion.button
@@ -452,9 +568,9 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                     whileTap={TACTILE_TAP}
                     onClick={onLoadDemoTrack}
                     data-testid="load-demo-track-btn"
-                    className="inline-flex items-center gap-2 px-4 py-2 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white font-mono text-xs font-semibold tracking-wide transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-2 px-5 py-3 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-mono text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
                   >
-                    <Activity className="w-3.5 h-3.5" />
+                    <Activity className="w-4 h-4" />
                     <span>LOAD DEMO TRACK</span>
                   </motion.button>
                 )}
@@ -466,23 +582,23 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
         {report && !isAnalyzing && (
           <motion.div
             key={viewStateKey}
-            initial={{ opacity: 0, y: 8 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.3, ease: STUDIO_EASE }}
+            transition={{ duration: 0.26, ease: BRUT_EASE }}
             className="space-y-6"
           >
             {/* Active Track Strip */}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 squircle-inner studio-surface text-xs">
-              <div className="flex flex-wrap items-center gap-2 text-[var(--text-primary)] font-mono tabular-nums">
-                <FileAudio className="w-4 h-4 text-[var(--accent-primary)] shrink-0" />
-                <span className="font-semibold">{report.file_metadata.filename}</span>
-                <span className="opacity-35" aria-hidden="true">·</span>
-                <span className="text-[var(--text-secondary)]">
+            <div className="border-2 border-[var(--border-ink)] bg-[var(--bg-surface)] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2.5 font-mono text-xs tabular-nums text-[var(--ink)]">
+                <FileAudio className="w-4 h-4 shrink-0" />
+                <span className="font-bold">{report.file_metadata.filename}</span>
+                <span className="opacity-35">/</span>
+                <span className="text-[var(--ink-muted)]">
                   {report.file_metadata.duration_seconds.toFixed(1)}s ·{' '}
                   {(report.file_metadata.file_size_bytes / (1024 * 1024)).toFixed(1)} MB ·{' '}
                   {report.file_metadata.sample_rate_hz} Hz ·{' '}
-                  {report.file_metadata.channels === 1 ? 'Mono' : 'Stereo'}
+                  {report.file_metadata.channels === 1 ? 'MONO' : 'STEREO'}
                 </span>
               </div>
               {onClearFile && (
@@ -490,150 +606,106 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                   type="button"
                   whileTap={TACTILE_TAP}
                   onClick={onClearFile}
-                  className="px-2.5 py-1 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] font-medium transition-colors inline-flex items-center gap-1 shrink-0 whitespace-nowrap cursor-pointer"
+                  className="px-3 py-1 border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-canvas)] hover:bg-[#FF3B1F] hover:text-white font-mono text-[11px] font-bold uppercase transition-colors inline-flex items-center gap-1 cursor-pointer"
                 >
                   <X className="w-3 h-3" />
-                  <span>Clear Track</span>
+                  <span>CLEAR TRACK</span>
                 </motion.button>
               )}
             </div>
 
-            {/* 60fps Canvas Waveform & Clickable Issue Markers */}
-            <WaveformInspector
-              durationSeconds={report.file_metadata.duration_seconds}
-              issues={report.issues}
-              activeIssueId={activeIssueId}
-              activeTimestamp={activeTimestamp}
-              onSelectTimestamp={(issueId, ts) => {
-                setActiveIssueId(issueId);
-                setActiveTimestamp(ts);
-              }}
-              timeline={report.timeline}
-              showTransportBar
-            />
-
-            {/* SECTION A — 4-Metric Quick Scorecard (Zero Drop Shadows, Hairline Borders, Tabular Nums) */}
+            {/* 1. 4 TRAFFIC-LIGHT GRID CELLS (PLAIN ENGLISH FIRST, SMALL TABULAR NUMBERS UNDERNEATH) */}
             <section
               aria-label="Mix Quick Diagnostics Scorecard"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+              data-testid="simple-traffic-light-grid"
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 border-2 border-[var(--border-ink)] divide-y-2 sm:divide-y-0 sm:divide-x-2 divide-[var(--border-ink)] bg-[var(--bg-canvas)]"
             >
-              {/* 1. Loudness */}
-              <div className="studio-elevated squircle-inner p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                  <span className="font-medium">Integrated Loudness</span>
-                  <Volume2 className="w-4 h-4 text-[var(--accent-primary)]" />
-                </div>
-                <div className="text-2xl font-bold text-[var(--text-primary)] font-mono tabular-nums">
-                  {lufsVal !== null && lufsVal !== undefined ? `${lufsVal.toFixed(1)} LUFS` : '—'}
-                </div>
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] pt-1 studio-hairline-t">
-                  <span className="font-mono tabular-nums">Target {lufsMin} to {lufsMax}</span>
-                  <span className={`font-semibold ${lufsStatus.color}`}>{lufsStatus.label}</span>
-                </div>
-              </div>
+              {[
+                { key: 'VOLUME', num: '01', data: volumeTile },
+                { key: 'CLIPPING SAFETY', num: '02', data: clippingTile },
+                { key: 'PHONE / MONO SAFETY', num: '03', data: monoTile },
+                { key: 'PUNCH & DYNAMICS', num: '04', data: punchTile },
+              ].map((cell, idx) => (
+                <div
+                  key={cell.key}
+                  className={`p-5 flex flex-col justify-between gap-4 ${
+                    idx < 2 ? 'sm:border-b-2 lg:border-b-0 border-[var(--border-ink)]' : ''
+                  }`}
+                >
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                        {cell.num} / {cell.key}
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 border font-mono text-[10px] font-bold uppercase tracking-wider whitespace-nowrap ${trafficBadgeClasses(
+                          cell.data.level
+                        )}`}
+                      >
+                        {cell.data.status}
+                      </span>
+                    </div>
+                    <p className="font-ui text-sm font-bold text-[var(--ink)] leading-snug">
+                      {cell.data.plain}
+                    </p>
+                  </div>
 
-              {/* 2. True Peak Headroom */}
-              <div className="studio-elevated squircle-inner p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                  <span className="font-medium">True Peak Headroom</span>
-                  <Activity className="w-4 h-4 text-[var(--accent-primary)]" />
+                  <div className="pt-3 border-t-[1.5px] border-[var(--border-ink)]/25 flex items-baseline justify-between gap-2 font-mono tabular-nums">
+                    <span className="text-base font-bold text-[var(--ink)]">
+                      {cell.data.metric}
+                    </span>
+                    <span className="text-[10px] text-[var(--ink-muted)] uppercase">
+                      {cell.data.target}
+                    </span>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold text-[var(--text-primary)] font-mono tabular-nums">
-                  {tpVal !== null && tpVal !== undefined ? `${tpVal.toFixed(1)} dBTP` : '—'}
-                </div>
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] pt-1 studio-hairline-t">
-                  <span className="font-mono tabular-nums">Ceiling ≤ {tpTarget.toFixed(1)}</span>
-                  <span className={`font-semibold ${tpStatus.color}`}>{tpStatus.label}</span>
-                </div>
-              </div>
-
-              {/* 3. Mono & Phase Safety */}
-              <div className="studio-elevated squircle-inner p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                  <span className="font-medium">Mono &amp; Phase Safety</span>
-                  <Layers className="w-4 h-4 text-[var(--accent-primary)]" />
-                </div>
-                <div className="text-2xl font-bold text-[var(--text-primary)] font-mono tabular-nums">
-                  {isMono
-                    ? 'Mono'
-                    : phaseCorr !== null && phaseCorr !== undefined
-                    ? `${phaseCorr >= 0 ? '+' : ''}${phaseCorr.toFixed(2)}`
-                    : '—'}
-                </div>
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] pt-1 studio-hairline-t">
-                  <span>Phase correlation</span>
-                  <span className={`font-semibold ${phaseStatus.color}`}>{phaseStatus.label}</span>
-                </div>
-              </div>
-
-              {/* 4. Crest / Dynamics */}
-              <div className="studio-elevated squircle-inner p-4 space-y-2.5">
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
-                  <span className="font-medium">Crest / Dynamics</span>
-                  <Sliders className="w-4 h-4 text-[var(--accent-primary)]" />
-                </div>
-                <div className="text-2xl font-bold text-[var(--text-primary)] font-mono tabular-nums">
-                  {crestVal !== null && crestVal !== undefined ? `${crestVal.toFixed(1)} dB` : '—'}
-                </div>
-                <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] pt-1 studio-hairline-t">
-                  <span>Peak-to-RMS ratio</span>
-                  <span className={`font-semibold ${crestStatus.color}`}>{crestStatus.label}</span>
-                </div>
-              </div>
+              ))}
             </section>
 
-            {/* SECTION B — Daylight Spectral Tonal Balance Graph */}
-            <SpectralTonalBalanceGraph
-              report={report}
-              genre={genre}
-              mixStage={mixStage}
-              measuredSixBands={audioState.primarySixBands}
-              spectrumBins={audioState.primarySpectrumBins}
-              variant="simple"
-              focusedIssueId={activeIssueId}
-              flashNonce={spectrumFlashNonce}
-              onSelectFlaggedIssue={handleFocusIssue}
+            {/* 2. COMPACT LIVE 60FPS SPECTRUM ANALYZER (PLAY / PAUSE + 6-BAND CLICK TO HIGHLIGHT FINDINGS) */}
+            <LiveSpectrumAnalyzer
+              mode="simple"
+              height={196}
+              showControls
+              issues={report.issues}
+              activeIssueId={activeIssueId}
+              staticSpectrumBins={audioState.primarySpectrumBins}
+              staticSixBands={audioState.primarySixBands}
+              title="LIVE SPECTRUM OVERVIEW · CLICK A BAND TO HIGHLIGHT FIX"
+              onSelectZone={(_zoneId, matchedIssueId) => {
+                if (matchedIssueId) {
+                  handleFocusIssue(matchedIssueId, false);
+                }
+              }}
             />
 
-            {/* SECTION C — Prioritized Mix Action Plan (Max 3 Cards with Staggered Reveal + Smooth Accordions) */}
+            {/* 3. PRIORITIZED MIX ACTION PLAN — GIANT 01 / 02 / 03 SWISS ROWS */}
             <section
               aria-label="Prioritized Mix Action Plan"
-              className="studio-elevated squircle-outer p-6 space-y-4"
+              className="border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-3.5 studio-hairline-b">
+              <div className="px-5 py-4 border-b-2 border-[var(--border-ink)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-bold text-[var(--text-primary)]">
-                    Prioritized Mix Action Plan ({topRecommendations.length} Key Steps)
+                  <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                    STEP-BY-STEP DAW CHECKLIST
+                  </div>
+                  <h2 className="font-display text-2xl sm:text-3xl uppercase text-[var(--ink)] mt-0.5">
+                    PRIORITIZED MIX ACTION PLAN ({topRecommendations.length} KEY STEPS)
                   </h2>
-                  <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-                    Follow these prioritized steps in your DAW before re-exporting.
-                  </p>
                 </div>
-                <div className="text-xs font-mono tabular-nums text-[var(--text-secondary)]">
-                  Completed: {Object.values(checkedSteps).filter(Boolean).length} / {topRecommendations.length}
+                <div className="px-3 py-1 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] font-mono text-xs font-bold tabular-nums uppercase">
+                  VERIFIED: {Object.values(checkedSteps).filter(Boolean).length} /{' '}
+                  {topRecommendations.length}
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="divide-y-2 divide-[var(--border-ink)]">
                 {topRecommendations.map((rec, idx) => {
                   const isDone = !!checkedSteps[rec.recommendation_id];
                   const isGuideOpen = !!expandedGuides[rec.recommendation_id];
                   const linkedIssue = report.issues.find((i) => i.issue_id === rec.linked_issue_id);
                   const isHighlighted = activeIssueId === rec.linked_issue_id;
-
-                  const priorityLabel =
-                    rec.priority_rank === 1
-                      ? 'Priority 01'
-                      : rec.priority_rank === 2
-                      ? 'Priority 02'
-                      : 'Priority 03';
-
-                  const priorityTextColor =
-                    rec.priority_rank === 1
-                      ? 'text-[var(--status-alert)]'
-                      : rec.priority_rank === 2
-                      ? 'text-[var(--status-caution)]'
-                      : 'text-[var(--accent-primary)]';
+                  const stepNum = `0${idx + 1}`;
 
                   const detectedLine =
                     linkedIssue?.learning_guide.what_was_detected ||
@@ -645,157 +717,154 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
                     rec.beginner_summary;
 
                   return (
-                    <motion.article
+                    <article
                       key={rec.recommendation_id}
                       data-testid={`diagnostic-card-${rec.linked_issue_id}`}
-                      initial={{ opacity: 0, y: 12 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.32, delay: idx * 0.06, ease: STUDIO_EASE }}
-                      onClick={() => {
-                        if (linkedIssue) handleFocusIssue(linkedIssue.issue_id);
-                      }}
-                      className={`relative squircle-inner border p-5 transition-colors space-y-3 cursor-pointer ${
-                        isHighlighted
-                          ? 'border-[var(--border-active-color)] bg-[var(--accent-soft)]/50'
-                          : 'border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)]'
+                      className={`transition-colors ${
+                        isHighlighted ? 'bg-[var(--bg-surface)]' : 'bg-[var(--bg-canvas)]'
                       }`}
                     >
-                      {isHighlighted && (
-                        <motion.span
-                          layoutId="active-issue-indicator"
-                          transition={STUDIO_SPRING}
-                          aria-hidden="true"
-                          className="absolute left-0 top-4 bottom-4 w-1 rounded-r-full bg-[var(--accent-primary)]"
-                        />
-                      )}
-
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className={`font-mono tabular-nums font-semibold ${priorityTextColor}`}>
-                              {priorityLabel}
-                            </span>
-                            <span aria-hidden="true" className="opacity-35">·</span>
-                            <span className="text-[var(--text-secondary)]">
-                              {rec.classification === 'objective_technical'
-                                ? 'Technical Warning'
-                                : 'Stylistic Suggestion'}
-                            </span>
+                      {/* Row Header */}
+                      <div className="p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                        <div
+                          onClick={() => toggleGuide(rec.recommendation_id)}
+                          className="flex items-start sm:items-center gap-4 sm:gap-6 cursor-pointer min-w-0 flex-1"
+                        >
+                          <span
+                            className={`font-display text-5xl sm:text-6xl leading-none shrink-0 ${
+                              idx === 0 && linkedIssue?.severity === 'critical'
+                                ? 'text-[#FF3B1F]'
+                                : 'text-[var(--ink)]'
+                            }`}
+                          >
+                            {stepNum}
+                          </span>
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] font-bold uppercase tracking-wider">
+                              <span
+                                className={`px-1.5 py-0.5 border border-[var(--border-ink)] ${
+                                  rec.classification === 'objective_technical'
+                                    ? 'bg-[#FF3B1F] text-white'
+                                    : 'bg-[#FFD600] text-[#0A0A0A]'
+                                }`}
+                              >
+                                {rec.classification === 'objective_technical'
+                                  ? 'TECHNICAL WARNING'
+                                  : 'TONAL SUGGESTION'}
+                              </span>
+                              {isHighlighted && (
+                                <span className="px-1.5 py-0.5 bg-[var(--ink)] text-[var(--bg-canvas)]">
+                                  SELECTED
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="font-ui text-base sm:text-lg font-bold uppercase text-[var(--ink)] mt-1.5 leading-snug">
+                              {rec.action_title}
+                            </h3>
+                            <p className="text-xs text-[var(--ink-muted)] mt-1 line-clamp-2">
+                              {rec.beginner_summary}
+                            </p>
                           </div>
-                          <h3 className="text-sm font-bold text-[var(--text-primary)] mt-1">
-                            {rec.action_title}
-                          </h3>
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {linkedIssue?.timestamps?.[0] && (
-                            <motion.button
-                              type="button"
-                              whileTap={TACTILE_TAP}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleFocusIssue(linkedIssue.issue_id);
-                              }}
-                              className="px-2.5 py-1.5 squircle-inner text-xs font-medium border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors whitespace-nowrap cursor-pointer"
-                            >
-                              Audition Cue
-                            </motion.button>
-                          )}
+
+                        {/* Inline Actions: Play/Audition, Mark Verified, Accordion +/- */}
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                           <motion.button
                             type="button"
                             whileTap={TACTILE_TAP}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              toggleVerificationStep(rec.recommendation_id);
-                            }}
+                            onClick={() => handleFocusIssue(rec.linked_issue_id, true)}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] hover:bg-[#FFD600] hover:text-[#0A0A0A] font-mono text-[11px] font-bold uppercase transition-colors cursor-pointer"
+                          >
+                            <Play className="w-3 h-3" />
+                            <span>AUDITION</span>
+                          </motion.button>
+
+                          <motion.button
+                            type="button"
+                            whileTap={TACTILE_TAP}
+                            onClick={() => toggleVerificationStep(rec.recommendation_id)}
                             aria-pressed={isDone}
-                            className={`px-3 py-1.5 squircle-inner text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                            className={`inline-flex items-center gap-1.5 px-3 py-2 border-2 border-[var(--border-ink)] font-mono text-[11px] font-bold uppercase transition-colors cursor-pointer ${
                               isDone
-                                ? 'bg-[var(--accent-primary)] text-white border-[var(--accent-primary)]'
-                                : 'bg-[var(--bg-elevated)] text-[var(--text-primary)] border-[var(--border-hairline-color)] hover:border-[var(--border-active-color)]'
+                                ? 'bg-[var(--ink)] text-[var(--bg-canvas)]'
+                                : 'bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[var(--bg-surface)]'
                             }`}
                           >
-                            {isDone ? 'Verified in DAW' : 'Mark Verified'}
+                            {isDone && <Check className="w-3 h-3" />}
+                            <span>{isDone ? 'VERIFIED' : 'MARK VERIFIED'}</span>
                           </motion.button>
+
+                          <button
+                            type="button"
+                            onClick={() => toggleGuide(rec.recommendation_id)}
+                            aria-expanded={isGuideOpen}
+                            aria-label={isGuideOpen ? 'Collapse step details' : 'Expand step details'}
+                            className="w-9 h-9 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] flex items-center justify-center transition-colors cursor-pointer"
+                          >
+                            {isGuideOpen ? (
+                              <X className="w-4 h-4" />
+                            ) : (
+                              <Plus className="w-4 h-4" />
+                            )}
+                          </button>
                         </div>
                       </div>
 
-                      {/* Detected Metric */}
-                      <p className="text-xs text-[var(--text-secondary)]">
-                        <strong className="text-[var(--text-primary)] font-semibold mr-1.5">
-                          Detected:
-                        </strong>
-                        {detectedLine}
-                      </p>
-
-                      {/* DAW Fix */}
-                      <p className="text-xs text-[var(--text-primary)] font-medium bg-[var(--accent-soft)] p-3 squircle-inner border border-[var(--border-active-color)]">
-                        <strong className="text-[var(--accent-primary)] font-semibold mr-1.5">
-                          DAW Fix:
-                        </strong>
-                        {dawFixLine}
-                      </p>
-
-                      {/* Smooth Animated Collapsible Learning Guide */}
-                      <div className="pt-1">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleGuide(rec.recommendation_id);
-                          }}
-                          aria-expanded={isGuideOpen}
-                          className="inline-flex items-center gap-1.5 text-xs text-[var(--accent-primary)] hover:underline underline-offset-4 cursor-pointer font-semibold select-none"
-                        >
-                          <span>Why this matters &amp; how to check</span>
-                          <ChevronDown
-                            className={`w-3.5 h-3.5 transition-transform duration-200 ${
-                              isGuideOpen ? 'rotate-180' : ''
-                            }`}
-                          />
-                        </button>
-
-                        <AnimatePresence initial={false}>
-                          {isGuideOpen && (
-                            <motion.div
-                              key="guide-body"
-                              initial={{ opacity: 0, height: 0 }}
-                              animate={{ opacity: 1, height: 'auto' }}
-                              exit={{ opacity: 0, height: 0 }}
-                              transition={{ duration: 0.24, ease: STUDIO_EASE }}
-                              className="overflow-hidden"
-                            >
-                              <div className="pt-3 mt-2.5 space-y-2 studio-hairline-t text-xs text-[var(--text-secondary)] leading-relaxed">
-                                <p>
-                                  <strong className="text-[var(--text-primary)]">What was detected:</strong>{' '}
-                                  {detectedLine}
-                                </p>
-                                <p>
-                                  <strong className="text-[var(--text-primary)]">Why it matters:</strong>{' '}
+                      {/* Expandable What happened -> Why it matters -> What to try -> Recheck */}
+                      <AnimatePresence initial={false}>
+                        {isGuideOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: 'auto' }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={{ duration: 0.22, ease: BRUT_EASE }}
+                            className="overflow-hidden"
+                          >
+                            <div className="border-t-[1.5px] border-[var(--border-ink)] grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 divide-y-[1.5px] md:divide-y-0 md:divide-x-[1.5px] divide-[var(--border-ink)] bg-[var(--bg-surface)] text-xs">
+                              <div className="p-4 space-y-1.5">
+                                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                                  01 · WHAT HAPPENED
+                                </div>
+                                <p className="text-[var(--ink)] leading-relaxed">{detectedLine}</p>
+                              </div>
+                              <div className="p-4 space-y-1.5">
+                                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                                  02 · WHY IT MATTERS
+                                </div>
+                                <p className="text-[var(--ink)] leading-relaxed">
                                   {linkedIssue?.learning_guide.why_it_matters ||
-                                    'Addressing this ensures clean translation across consumer listening systems.'}
-                                </p>
-                                <p>
-                                  <strong className="text-[var(--accent-primary)]">What to try in your DAW:</strong>{' '}
-                                  {dawFixLine}
-                                </p>
-                                <p>
-                                  <strong className="text-[var(--text-primary)]">How to verify the change:</strong>{' '}
-                                  {linkedIssue?.learning_guide.how_to_verify ||
-                                    rec.verification_check ||
-                                    'Re-export and verify that the metric clears.'}
+                                    'Fixing this keeps your mix consistent across earbuds, car stereos, and streaming.'}
                                 </p>
                               </div>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </motion.article>
+                              <div className="p-4 space-y-1.5 bg-[#FFD600]/20">
+                                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink)]">
+                                  03 · WHAT TO TRY IN YOUR DAW
+                                </div>
+                                <p className="font-semibold text-[var(--ink)] leading-relaxed">
+                                  {dawFixLine}
+                                </p>
+                              </div>
+                              <div className="p-4 space-y-1.5">
+                                <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                                  04 · RECHECK
+                                </div>
+                                <p className="text-[var(--ink)] leading-relaxed">
+                                  {linkedIssue?.learning_guide.how_to_verify ||
+                                    rec.verification_check ||
+                                    'Re-export your bounce and check that this warning clears.'}
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </article>
                   );
                 })}
               </div>
             </section>
 
-            {/* SECTION D — Evidence-Bound AI Mix Mentor & Artist Vision */}
+            {/* 4. COMPACT BEGINNER AI MENTOR */}
             <AiMentorPanel
               report={report}
               genre={genre}
@@ -805,8 +874,30 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               onChangeConsent={(next) => onChangeConsent?.(next)}
               artistVision={artistVision}
               onChangeArtistVision={setArtistVision}
-              onSelectEvidenceId={handleFocusIssue}
+              onSelectEvidenceId={(id) => handleFocusIssue(id, true)}
             />
+
+            {/* 5. SOLID #FFD600 YELLOW FOOTER CALLOUT BAR -> OPEN IN ADVANCED WORKBENCH */}
+            <motion.button
+              type="button"
+              whileTap={TACTILE_TAP}
+              onClick={onSwitchToAdvanced}
+              data-testid="simple-to-advanced-cta"
+              className="group w-full border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] px-6 py-5 flex flex-wrap items-center justify-between gap-4 text-left transition-colors cursor-pointer"
+            >
+              <div>
+                <div className="font-mono text-[10px] font-bold uppercase tracking-widest opacity-80">
+                  SEAMLESS TRACK HANDOFF · AUDIO &amp; REPORT PRESERVED
+                </div>
+                <div className="font-display text-xl sm:text-2xl uppercase tracking-tight mt-0.5">
+                  WANT LIVE METERS, A/B REFERENCE, PHONE/LAPTOP LAB &amp; STEMS?
+                </div>
+              </div>
+              <span className="inline-flex items-center gap-2 px-4 py-2.5 border-2 border-current font-ui text-xs font-bold uppercase tracking-wider shrink-0">
+                <span>OPEN IN ADVANCED WORKBENCH</span>
+                <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
+              </span>
+            </motion.button>
           </motion.div>
         )}
       </AnimatePresence>

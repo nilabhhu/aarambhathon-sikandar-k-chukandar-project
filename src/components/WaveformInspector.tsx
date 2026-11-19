@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'motion/react';
 import { AnalysisIssue, TimelineSeries } from '../contracts/analysisContract';
 import { useStudioAudioEngine, useStudioAudioState } from '../audio/StudioAudioContext';
+import { clampTimestampRange } from '../audio/shortTermLufsMath';
 import { STUDIO_SPRING, TACTILE_TAP } from '../lib/motion';
 import {
   Play,
@@ -67,25 +68,40 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
     audioState.primaryDurationSec > 0 ? audioState.primaryDurationSec : durationSeconds
   );
 
-  // Flatten issue timestamps into clickable marker pins
+  // Flatten issue timestamps into clickable marker pins (strictly clamped to [0, effectiveDuration])
   const markers = useMemo<FlattenedMarker[]>(() => {
     const list: FlattenedMarker[] = [];
     for (const issue of issues) {
       issue.timestamps.forEach((ts, idx) => {
+        const clamped = clampTimestampRange(ts.start_sec, ts.end_sec, effectiveDuration);
         list.push({
           id: `${issue.issue_id}-${idx}`,
           issueId: issue.issue_id,
           issueTitle: issue.title,
           classification: issue.classification,
           severity: issue.severity,
-          startSec: Math.max(0, Math.min(effectiveDuration, ts.start_sec)),
-          endSec: Math.max(ts.start_sec, Math.min(effectiveDuration, ts.end_sec)),
+          startSec: clamped.start_sec,
+          endSec: clamped.end_sec,
           label: ts.label,
         });
       });
     }
     return list;
   }, [issues, effectiveDuration]);
+
+  const clampedActiveTimestamp = useMemo(() => {
+    if (!activeTimestamp) return null;
+    const clamped = clampTimestampRange(
+      activeTimestamp.start_sec,
+      activeTimestamp.end_sec,
+      effectiveDuration
+    );
+    return {
+      ...activeTimestamp,
+      start_sec: clamped.start_sec,
+      end_sec: clamped.end_sec,
+    };
+  }, [activeTimestamp, effectiveDuration]);
 
   // Prefer decoded AudioBuffer peaks from StudioAudioEngine, fallback to DSP timeline buckets
   const waveformBars = useMemo(() => {
@@ -108,7 +124,7 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
     bars: waveformBars,
     markers,
     activeIssueId,
-    activeTimestamp,
+    activeTimestamp: clampedActiveTimestamp,
     effectiveDuration,
     loopRegion: audioState.loopRegion,
     isLooping: audioState.isLooping,
@@ -118,7 +134,7 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
     bars: waveformBars,
     markers,
     activeIssueId,
-    activeTimestamp,
+    activeTimestamp: clampedActiveTimestamp,
     effectiveDuration,
     loopRegion: audioState.loopRegion,
     isLooping: audioState.isLooping,
@@ -318,32 +334,37 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
   const handleMarkerClick = (mk: FlattenedMarker) => {
     const ts = { start_sec: mk.startSec, end_sec: mk.endSec, label: mk.label };
     onSelectTimestamp(mk.issueId, ts);
+    const loopEnd = Math.min(effectiveDuration, Math.max(mk.startSec + 0.5, mk.endSec));
     engine.setLoopRegion({
       startSec: mk.startSec,
-      endSec: Math.max(mk.startSec + 1.0, mk.endSec),
+      endSec: loopEnd > mk.startSec ? loopEnd : effectiveDuration,
       label: mk.label,
     });
     engine.seekAndPlay(mk.startSec).catch(() => {});
   };
 
   const handleToggleLoopForActive = () => {
-    if (!activeTimestamp) return;
+    if (!clampedActiveTimestamp) return;
     if (
       audioState.loopRegion &&
-      Math.abs(audioState.loopRegion.startSec - activeTimestamp.start_sec) < 0.05
+      Math.abs(audioState.loopRegion.startSec - clampedActiveTimestamp.start_sec) < 0.05
     ) {
       engine.toggleLooping();
     } else {
+      const loopEnd = Math.min(
+        effectiveDuration,
+        Math.max(clampedActiveTimestamp.start_sec + 0.5, clampedActiveTimestamp.end_sec)
+      );
       engine.setLoopRegion(
         {
-          startSec: activeTimestamp.start_sec,
-          endSec: Math.max(activeTimestamp.start_sec + 1.0, activeTimestamp.end_sec),
-          label: activeTimestamp.label,
+          startSec: clampedActiveTimestamp.start_sec,
+          endSec: loopEnd > clampedActiveTimestamp.start_sec ? loopEnd : effectiveDuration,
+          label: clampedActiveTimestamp.label,
         },
         true
       );
       if (audioState.hasPrimaryMix) {
-        engine.seekAndPlay(activeTimestamp.start_sec).catch(() => {});
+        engine.seekAndPlay(clampedActiveTimestamp.start_sec).catch(() => {});
       }
     }
   };
@@ -351,8 +372,8 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
   const isLoopingActiveMarker =
     audioState.isLooping &&
     audioState.loopRegion !== null &&
-    activeTimestamp !== null &&
-    Math.abs(audioState.loopRegion.startSec - activeTimestamp.start_sec) < 0.1;
+    clampedActiveTimestamp !== null &&
+    Math.abs(audioState.loopRegion.startSec - clampedActiveTimestamp.start_sec) < 0.1;
 
   return (
     <section
@@ -451,7 +472,8 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
                 const leftPct = Math.min(90, Math.max(rawPct, lastPct + MIN_GAP_PCT));
                 lastPct = leftPct;
                 const isSelected =
-                  activeIssueId === mk.issueId && activeTimestamp?.start_sec === mk.startSec;
+                  activeIssueId === mk.issueId &&
+                  clampedActiveTimestamp?.start_sec === mk.startSec;
                 const isTech = mk.classification === 'objective_technical';
 
                 return (
@@ -512,14 +534,18 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
         <span className="font-mono tabular-nums text-[var(--text-secondary)]">00:00.0</span>
 
-        {activeTimestamp ? (
+        {clampedActiveTimestamp ? (
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="text-[var(--text-secondary)]">
               Selected cue:{' '}
-              <strong className="font-mono tabular-nums text-[var(--text-primary)]">
-                {formatTimecode(activeTimestamp.start_sec)} – {formatTimecode(activeTimestamp.end_sec)}
+              <strong
+                data-testid="waveform-selected-cue-range"
+                className="font-mono tabular-nums text-[var(--text-primary)]"
+              >
+                {formatTimecode(clampedActiveTimestamp.start_sec)} –{' '}
+                {formatTimecode(clampedActiveTimestamp.end_sec)}
               </strong>{' '}
-              <span>({activeTimestamp.label})</span>
+              <span>({clampedActiveTimestamp.label})</span>
             </span>
 
             <motion.button

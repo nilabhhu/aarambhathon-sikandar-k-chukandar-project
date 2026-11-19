@@ -44,13 +44,67 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
     return padT + plotH * (1 - ratio);
   };
 
+  const { effectiveTimeline, effectiveDuration, effectiveShortTermMax, effectiveIntegrated } =
+    useMemo(() => {
+      const reportBuckets = timeline?.buckets ?? [];
+      const reportFiniteSt = reportBuckets.filter(
+        (b) => b.short_term_lufs !== null && Number.isFinite(b.short_term_lufs)
+      );
+      const useReport = reportFiniteSt.length >= 2;
+      const chosenTimeline = useReport
+        ? timeline
+        : audioState.primaryShortTermTimeline ?? timeline;
+
+      const dur = Math.max(
+        0.1,
+        audioState.primaryDurationSec > 0
+          ? audioState.primaryDurationSec
+          : durationSeconds || chosenTimeline?.total_duration_sec || 1
+      );
+
+      let maxSt = shortTermMaxLufs;
+      if (maxSt === null || !Number.isFinite(maxSt)) {
+        if (audioState.primaryShortTermMaxLufs !== null) {
+          maxSt = audioState.primaryShortTermMaxLufs;
+        } else if (chosenTimeline?.buckets?.length) {
+          const vals = chosenTimeline.buckets
+            .map((b) => b.short_term_lufs)
+            .filter((v): v is number => v !== null && Number.isFinite(v));
+          if (vals.length > 0) {
+            maxSt = Math.max(...vals);
+          }
+        }
+      }
+
+      const intVal =
+        integratedLufs !== null && Number.isFinite(integratedLufs)
+          ? integratedLufs
+          : audioState.primaryLufs;
+
+      return {
+        effectiveTimeline: chosenTimeline,
+        effectiveDuration: dur,
+        effectiveShortTermMax: maxSt,
+        effectiveIntegrated: intVal,
+      };
+    }, [
+      timeline,
+      audioState.primaryShortTermTimeline,
+      audioState.primaryShortTermMaxLufs,
+      audioState.primaryDurationSec,
+      audioState.primaryLufs,
+      durationSeconds,
+      shortTermMaxLufs,
+      integratedLufs,
+    ]);
+
   const { linePath, areaPath, hasData } = useMemo(() => {
-    const buckets = timeline?.buckets ?? [];
+    const buckets = effectiveTimeline?.buckets ?? [];
     if (buckets.length < 2) {
       return { linePath: '', areaPath: '', hasData: false };
     }
 
-    const totalDur = Math.max(0.1, durationSeconds || timeline?.total_duration_sec || 1);
+    const totalDur = Math.max(0.1, effectiveDuration || effectiveTimeline?.total_duration_sec || 1);
     const pts: Array<{ x: number; y: number }> = [];
 
     for (const b of buckets) {
@@ -73,7 +127,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
     const area = `${line} L ${pts[pts.length - 1].x.toFixed(1)} ${baselineY.toFixed(1)} L ${pts[0].x.toFixed(1)} ${baselineY.toFixed(1)} Z`;
 
     return { linePath: line, areaPath: area, hasData: true };
-  }, [timeline, durationSeconds, plotW, plotH]);
+  }, [effectiveTimeline, effectiveDuration, plotW, plotH]);
 
   // 60fps direct SVG playhead update (zero React state re-renders)
   useEffect(() => {
@@ -106,7 +160,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
 
   const targetTopY = lufsToY(targetMax);
   const targetBotY = lufsToY(targetMin);
-  const integratedY = integratedLufs !== null ? lufsToY(integratedLufs) : null;
+  const integratedY = effectiveIntegrated !== null ? lufsToY(effectiveIntegrated) : null;
   const gridTicks = [-6, -12, -18, -24, -30, -36];
 
   return (
@@ -128,13 +182,13 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
           <span>
             Int:{' '}
             <strong className="text-[var(--text-primary)]">
-              {integratedLufs !== null ? `${integratedLufs.toFixed(1)}` : '—'}
+              {effectiveIntegrated !== null ? `${effectiveIntegrated.toFixed(1)}` : '—'}
             </strong>
           </span>
           <span>
             Max ST:{' '}
-            <strong className="text-[var(--text-primary)]">
-              {shortTermMaxLufs !== null ? `${shortTermMaxLufs.toFixed(1)}` : '—'}
+            <strong data-testid="short-term-max-readout" className="text-[var(--text-primary)]">
+              {effectiveShortTermMax !== null ? `${effectiveShortTermMax.toFixed(1)}` : '—'}
             </strong>
           </span>
         </div>
@@ -252,7 +306,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             fill="var(--text-secondary)"
             className="text-[9.5px] font-mono tabular-nums"
           >
-            {formatTimecode(durationSeconds / 2)}
+            {formatTimecode(effectiveDuration / 2)}
           </text>
           <text
             x={padL + plotW}
@@ -261,7 +315,7 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             fill="var(--text-secondary)"
             className="text-[9.5px] font-mono tabular-nums"
           >
-            {formatTimecode(durationSeconds)}
+            {formatTimecode(effectiveDuration)}
           </text>
         </svg>
       ) : (

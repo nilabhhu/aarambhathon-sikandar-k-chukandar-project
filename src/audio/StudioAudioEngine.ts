@@ -27,6 +27,8 @@ import {
   LiveLoudnessAndPeaks,
   LiveLoudnessPeakTracker,
 } from './realtimeMeters';
+import { computeShortTermLufsTimelineFromChannels } from './shortTermLufsMath';
+import type { TimelineSeries } from '../contracts/analysisContract';
 
 export type { LiveLoudnessAndPeaks };
 
@@ -52,6 +54,8 @@ export interface StudioEngineSnapshot {
   primarySampleRate: number;
   primaryChannels: number;
   primaryLufs: number | null;
+  primaryShortTermMaxLufs: number | null;
+  primaryShortTermTimeline: TimelineSeries | null;
   primarySixBands: SixBandMeasurements | null;
   primarySpectrumBins: number[] | null;
 
@@ -401,6 +405,8 @@ export class StudioAudioEngine {
   private primaryBuffer: AudioBuffer | null = null;
   private primaryFile: File | null = null;
   private primaryLufs: number | null = null;
+  private primaryShortTermMaxLufs: number | null = null;
+  private primaryShortTermTimeline: TimelineSeries | null = null;
   private primarySixBands: SixBandMeasurements | null = null;
   private primarySpectrumBins: number[] | null = null;
   private primaryPeaksCache: WaveformPeakBucket[] | null = null;
@@ -451,6 +457,8 @@ export class StudioAudioEngine {
   private corrBufR: Float32Array<ArrayBuffer> = new Float32Array(1024);
   private meterBufL: Float32Array<ArrayBuffer> = new Float32Array(1024);
   private meterBufR: Float32Array<ArrayBuffer> = new Float32Array(1024);
+  private freqBufL: Float32Array<ArrayBuffer> = new Float32Array(1024);
+  private freqBufR: Float32Array<ArrayBuffer> = new Float32Array(1024);
   private liveLoudnessTracker = new LiveLoudnessPeakTracker(48000);
 
   // Playback timing state (AudioContext clock driven)
@@ -500,6 +508,8 @@ export class StudioAudioEngine {
       primarySampleRate: this.primaryBuffer?.sampleRate ?? 0,
       primaryChannels: this.primaryBuffer?.numberOfChannels ?? 0,
       primaryLufs: this.primaryLufs,
+      primaryShortTermMaxLufs: this.primaryShortTermMaxLufs,
+      primaryShortTermTimeline: this.primaryShortTermTimeline,
       primarySixBands: this.primarySixBands,
       primarySpectrumBins: this.primarySpectrumBins,
 
@@ -698,8 +708,10 @@ export class StudioAudioEngine {
     const meterSplit = ctx.createChannelSplitter(2);
     const analyserL = ctx.createAnalyser();
     const analyserR = ctx.createAnalyser();
-    analyserL.fftSize = 1024;
-    analyserR.fftSize = 1024;
+    analyserL.fftSize = 2048;
+    analyserR.fftSize = 2048;
+    analyserL.smoothingTimeConstant = 0.78;
+    analyserR.smoothingTimeConstant = 0.78;
     masterGain.connect(meterSplit);
     meterSplit.connect(analyserL, 0);
     meterSplit.connect(analyserR, 1);
@@ -808,10 +820,19 @@ export class StudioAudioEngine {
       const spec = measureFullSpectrumFromBuffer(decoded);
       this.primarySixBands = spec.sixBands;
       this.primarySpectrumBins = spec.bins48;
+
+      const pcmChannels: Float32Array[] = [];
+      for (let c = 0; c < decoded.numberOfChannels; c++) {
+        pcmChannels.push(decoded.getChannelData(c));
+      }
+      const stTimeline = computeShortTermLufsTimelineFromChannels(pcmChannels, decoded.sampleRate);
+      this.primaryShortTermTimeline = stTimeline.timeline;
+      this.primaryShortTermMaxLufs = stTimeline.shortTermMaxLufs;
+
       this.primaryLufs =
         knownIntegratedLufs !== undefined && knownIntegratedLufs !== null
           ? knownIntegratedLufs
-          : measureIntegratedLufsFromBuffer(decoded);
+          : stTimeline.integratedLufs ?? measureIntegratedLufsFromBuffer(decoded);
 
       this.updateReferenceMatchOffset();
       this.updateRevisionV2MatchOffset();
@@ -824,6 +845,8 @@ export class StudioAudioEngine {
         file.name.toLowerCase().endsWith('.aiff') || file.name.toLowerCase().endsWith('.aif');
       this.primaryBuffer = null;
       this.primaryPeaksCache = null;
+      this.primaryShortTermTimeline = null;
+      this.primaryShortTermMaxLufs = null;
       this.primarySixBands = null;
       this.primarySpectrumBins = null;
       this.playbackError = isAiff
@@ -951,6 +974,8 @@ export class StudioAudioEngine {
     this.primaryBuffer = null;
     this.primaryFile = null;
     this.primaryLufs = null;
+    this.primaryShortTermMaxLufs = null;
+    this.primaryShortTermTimeline = null;
     this.primarySixBands = null;
     this.primarySpectrumBins = null;
     this.primaryPeaksCache = null;
@@ -1325,6 +1350,42 @@ export class StudioAudioEngine {
     }
 
     return maxAbs > 1e-6;
+  }
+
+  /**
+   * Returns active AudioContext sample rate (or primary buffer rate, defaulting to 48000 Hz).
+   */
+  public getSampleRate(): number {
+    return this.ctx?.sampleRate || this.primaryBuffer?.sampleRate || 48000;
+  }
+
+  /**
+   * Zero-allocation live 60fps FFT frequency readout (dBFS per bin, fftSize = 2048 -> 1024 bins)
+   * combining post-processing analyserL and analyserR via energy average.
+   * Returns true while playing with active FFT data, false when paused/silent.
+   */
+  public getLiveFrequencyData(targetDbArray: Float32Array): boolean {
+    if (!this.isPlaying || !this.analyserL || !this.analyserR) {
+      return false;
+    }
+
+    this.analyserL.getFloatFrequencyData(this.freqBufL);
+    this.analyserR.getFloatFrequencyData(this.freqBufR);
+
+    const n = Math.min(targetDbArray.length, this.freqBufL.length, this.freqBufR.length);
+    let maxDb = -140;
+    for (let i = 0; i < n; i++) {
+      const dbL = this.freqBufL[i];
+      const dbR = this.freqBufR[i];
+      const validL = Number.isFinite(dbL) ? dbL : -120;
+      const validR = Number.isFinite(dbR) ? dbR : -120;
+      // Combine stereo magnitude cleanly (max-weighted average preserves panned transients)
+      const combined = Math.max(validL, validR) * 0.6 + ((validL + validR) * 0.5) * 0.4;
+      targetDbArray[i] = combined;
+      if (combined > maxDb) maxDb = combined;
+    }
+
+    return maxDb > -105;
   }
 }
 

@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pyloudnorm as pyln
-from scipy.signal import resample_poly
+from scipy.signal import lfilter, resample_poly
 import soundfile as sf
 
 from backend.app.dsp.media_probe import resolve_binary
@@ -38,6 +38,122 @@ def compute_true_peak_4x_polyphase_dbtp(samples: np.ndarray) -> Optional[float]:
     if peak <= 1e-12:
         return None
     return round(20.0 * math.log10(peak), 2)
+
+
+def compute_kweighted_sliding_lufs_frames(
+    samples: np.ndarray,
+    sample_rate_hz: int,
+    include_short_term: bool = True,
+) -> Tuple[List[Tuple[float, Optional[float], Optional[float]]], Optional[float], Optional[float]]:
+    """
+    Computes real ITU-R BS.1770-4 K-weighted sliding-window Momentary (400ms)
+    and Short-Term (3.0s) LUFS frames directly from decoded PCM audio.
+
+    Uses a 0.25s hop for clips <= 10.0s (and 0.5s hop for longer clips) with a
+    clamped 3.0s window so even 3.0s–4.0s clips populate dense, accurate Short-Term
+    LUFS timeline buckets and short_term_max_lufs.
+    """
+    arr = np.asarray(samples, dtype=np.float64)
+    if arr.size == 0 or sample_rate_hz <= 0:
+        return [], None, None
+
+    if arr.ndim == 1:
+        arr = arr[:, np.newaxis]
+
+    n_samples, n_channels = arr.shape
+    duration_sec = n_samples / float(sample_rate_hz)
+    if duration_sec < 0.4:
+        return [], None, None
+
+    if float(np.max(np.abs(arr))) <= 1e-9:
+        return [], None, None
+
+    # ITU-R BS.1770-4 Stage 1: High-shelf filter (f0 = 1681.974 Hz, G = +3.9998 dB)
+    f0_shelf = 1681.9744509555319
+    g_db = 3.99984380697
+    k_shelf = math.tan(math.pi * f0_shelf / float(sample_rate_hz))
+    vh = 10.0 ** (g_db / 20.0)
+    vb = vh ** 0.499666774155
+    a0_s = 1.0 + k_shelf / 0.7071752369554193 + k_shelf * k_shelf
+    b_shelf = np.array([
+        (vh + vb * math.sqrt(2.0) * k_shelf + k_shelf * k_shelf) / a0_s,
+        (2.0 * (k_shelf * k_shelf - vh)) / a0_s,
+        (vh - vb * math.sqrt(2.0) * k_shelf + k_shelf * k_shelf) / a0_s,
+    ], dtype=np.float64)
+    a_shelf = np.array([
+        1.0,
+        (2.0 * (k_shelf * k_shelf - 1.0)) / a0_s,
+        (1.0 - k_shelf / 0.7071752369554193 + k_shelf * k_shelf) / a0_s,
+    ], dtype=np.float64)
+
+    # ITU-R BS.1770-4 Stage 2: High-pass filter (f0 = 38.135 Hz, Q = 0.5003)
+    f0_hp = 38.13547087602444
+    k_hp = math.tan(math.pi * f0_hp / float(sample_rate_hz))
+    q_hp = 0.5003270373253953
+    a0_hp = 1.0 + k_hp / q_hp + k_hp * k_hp
+    b_hp = np.array([1.0 / a0_hp, -2.0 / a0_hp, 1.0 / a0_hp], dtype=np.float64)
+    a_hp = np.array([
+        1.0,
+        (2.0 * (k_hp * k_hp - 1.0)) / a0_hp,
+        (1.0 - k_hp / q_hp + k_hp * k_hp) / a0_hp,
+    ], dtype=np.float64)
+
+    # Accumulate squared K-weighted energy across channels (equal weight for mono/stereo)
+    sum_sq = np.zeros(n_samples, dtype=np.float64)
+    for ch in range(n_channels):
+        y1 = lfilter(b_shelf, a_shelf, arr[:, ch])
+        y2 = lfilter(b_hp, a_hp, y1)
+        sum_sq += y2 * y2
+
+    prefix = np.empty(n_samples + 1, dtype=np.float64)
+    prefix[0] = 0.0
+    np.cumsum(sum_sq, out=prefix[1:])
+
+    def _power_to_lufs(mean_sq_sum: float) -> Optional[float]:
+        if mean_sq_sum <= 1e-12:
+            return None
+        val = -0.691 + 10.0 * math.log10(mean_sq_sum)
+        if math.isnan(val) or math.isinf(val) or val <= -99.0:
+            return None
+        return round(val, 2)
+
+    hop_sec = 0.25 if duration_sec <= 10.0 else 0.5
+    num_steps = min(240, max(8, int(round(duration_sec / hop_sec))))
+    step_sec = duration_sec / float(num_steps)
+
+    win_m = min(n_samples, max(1, int(round(0.4 * sample_rate_hz))))
+    win_s = min(n_samples, max(1, int(round(3.0 * sample_rate_hz))))
+    can_compute_short_term = include_short_term and duration_sec >= 3.0
+
+    frames: List[Tuple[float, Optional[float], Optional[float]]] = []
+    m_vals: List[float] = []
+    s_vals: List[float] = []
+
+    for idx in range(num_steps):
+        mid_t = (idx + 0.5) * step_sec
+        center = min(n_samples - 1, max(0, int(round(mid_t * sample_rate_hz))))
+
+        m_start = max(0, min(n_samples - win_m, center - win_m // 2))
+        m_end = min(n_samples, m_start + win_m)
+        m_mean = float(prefix[m_end] - prefix[m_start]) / float(max(1, m_end - m_start))
+        m_lufs = _power_to_lufs(m_mean)
+        if m_lufs is not None:
+            m_vals.append(m_lufs)
+
+        s_lufs: Optional[float] = None
+        if can_compute_short_term:
+            s_start = max(0, min(n_samples - win_s, center - win_s // 2))
+            s_end = min(n_samples, s_start + win_s)
+            s_mean = float(prefix[s_end] - prefix[s_start]) / float(max(1, s_end - s_start))
+            s_lufs = _power_to_lufs(s_mean)
+            if s_lufs is not None:
+                s_vals.append(s_lufs)
+
+        frames.append((round(mid_t, 3), m_lufs, s_lufs))
+
+    momentary_max = round(max(m_vals), 2) if m_vals else None
+    short_term_max = round(max(s_vals), 2) if s_vals else None
+    return frames, momentary_max, short_term_max
 
 
 def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
@@ -236,9 +352,27 @@ def measure_loudness_ebur128(
         parsed["lra_lu"] = None
 
     # Fallback to pyloudnorm for integrated loudness and 4x polyphase for True Peak
-    # if ffmpeg parsing was incomplete and file was not explicitly silent
-    if (parsed.get("integrated_lufs") is None or parsed.get("true_peak_dbtp") is None) and not parsed.get("is_silent"):
-        ffmpeg_fallback_used = True
+    # if ffmpeg parsing was incomplete and file was not explicitly silent.
+    # Also compute real ITU-R BS.1770-4 K-weighted sliding-window Short-Term/Momentary frames
+    # whenever frames are missing or lack finite short-term coverage (e.g., 3s–6s clips or fallback mode).
+    existing_frames = parsed.get("frames") or []
+    finite_st_frames = sum(1 for f in existing_frames if len(f) >= 3 and f[2] is not None)
+    needs_sliding_frames = (
+        not parsed.get("is_silent")
+        and duration_seconds >= 0.4
+        and (
+            len(existing_frames) < 2
+            or (duration_seconds >= 3.0 and (parsed.get("short_term_max_lufs") is None or finite_st_frames < max(2, len(existing_frames) // 2)))
+            or parsed.get("momentary_max_lufs") is None
+        )
+    )
+
+    if (
+        (parsed.get("integrated_lufs") is None or parsed.get("true_peak_dbtp") is None or needs_sliding_frames)
+        and not parsed.get("is_silent")
+    ):
+        if parsed.get("integrated_lufs") is None or parsed.get("true_peak_dbtp") is None:
+            ffmpeg_fallback_used = True
         try:
             data, sr = sf.read(str(decoded_wav_path), dtype="float32")
             if parsed.get("integrated_lufs") is None and duration_seconds >= 0.4:
@@ -253,9 +387,21 @@ def measure_loudness_ebur128(
                 tp = compute_true_peak_4x_polyphase_dbtp(data)
                 if tp is not None:
                     parsed["true_peak_dbtp"] = tp
+            if needs_sliding_frames:
+                sliding_frames, calc_m_max, calc_s_max = compute_kweighted_sliding_lufs_frames(
+                    data,
+                    sr,
+                    include_short_term=(duration_seconds >= 3.0),
+                )
+                if sliding_frames:
+                    parsed["frames"] = sliding_frames
+                if parsed.get("momentary_max_lufs") is None and calc_m_max is not None:
+                    parsed["momentary_max_lufs"] = calc_m_max
+                if duration_seconds >= 3.0 and parsed.get("short_term_max_lufs") is None and calc_s_max is not None:
+                    parsed["short_term_max_lufs"] = calc_s_max
         except Exception as exc:
             logger.warning(
-                "pyloudnorm / 4x polyphase fallback failed (%s: %s) for %s.",
+                "pyloudnorm / 4x polyphase / sliding LUFS fallback failed (%s: %s) for %s.",
                 type(exc).__name__,
                 exc,
                 decoded_wav_path.name,

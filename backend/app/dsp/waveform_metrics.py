@@ -38,8 +38,11 @@ def compute_waveform_metrics(
     sum_sq_mid = 0.0
     sum_sq_side = 0.0
 
-    # Timeline bucket setup (max 240 buckets, min 12 for short files)
-    num_buckets = min(240, max(12, int(duration_seconds / 1.0)))
+    # Timeline bucket setup (max 240 buckets; 0.25s resolution for short clips <= 10s)
+    if duration_seconds <= 10.0:
+        num_buckets = min(240, max(12, int(round(duration_seconds / 0.25))))
+    else:
+        num_buckets = min(240, max(12, int(duration_seconds / 1.0)))
     bucket_duration = duration_seconds / float(num_buckets)
     samples_per_bucket = max(1, int(round(bucket_duration * sample_rate_hz)))
 
@@ -194,8 +197,12 @@ def compute_waveform_metrics(
 
     # Assemble timeline buckets
     loudness_lookup = []
+    short_term_lookup = []
     if loudness_frames:
         loudness_lookup = sorted(loudness_frames, key=lambda x: x[0])
+        short_term_lookup = [
+            f for f in loudness_lookup if len(f) >= 3 and f[2] is not None and f[2] > -100.0
+        ]
 
     def find_nearest_lufs(t: float) -> Tuple[Optional[float], Optional[float]]:
         if not loudness_lookup:
@@ -203,6 +210,9 @@ def compute_waveform_metrics(
         best = min(loudness_lookup, key=lambda x: abs(x[0] - t))
         m_val = best[1]
         s_val = best[2]
+        if (s_val is None or s_val <= -100.0) and short_term_lookup:
+            best_s = min(short_term_lookup, key=lambda x: abs(x[0] - t))
+            s_val = best_s[2]
         m_ret = None if m_val is None or m_val <= -100.0 else round(m_val, 1)
         s_ret = None if s_val is None or s_val <= -100.0 else round(s_val, 1)
         return m_ret, s_ret
@@ -232,6 +242,7 @@ def compute_waveform_metrics(
                     b_corr = round(float(max(-1.0, min(1.0, lr / denom))), 2)
 
         buckets.append({
+            "time_sec": round(mid_t, 2),
             "start_sec": start_sec,
             "end_sec": end_sec,
             "peak_dbfs": p_dbfs,

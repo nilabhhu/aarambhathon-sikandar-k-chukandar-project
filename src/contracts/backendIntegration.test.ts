@@ -32,9 +32,43 @@ test('Backend Integration: checkBackendHealth handles backend offline gracefully
     throw new Error('fetch failed: Connection refused');
   };
 
-  const res = await checkBackendHealth(failingFetch as unknown as typeof fetch);
+  const res = await checkBackendHealth(failingFetch as unknown as typeof fetch, {
+    timeoutMs: 1000,
+    retryDelayMs: 10,
+    maxRetries: 1,
+  });
   assert.equal(res.online, false);
   assert.ok(res.errorMessage?.includes('Connection refused'));
+});
+
+test('Backend Integration: checkBackendHealth retries once on Render cold-start timeout and succeeds', async () => {
+  let attempts = 0;
+  const coldStartFetch = async () => {
+    attempts++;
+    if (attempts === 1) {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: 'ok',
+        phase: 5,
+        is_demonstration_mode: false,
+      }),
+    } as unknown as Response;
+  };
+
+  const res = await checkBackendHealth(coldStartFetch as unknown as typeof fetch, {
+    timeoutMs: 12000,
+    retryDelayMs: 10,
+    maxRetries: 1,
+  });
+  assert.equal(attempts, 2);
+  assert.equal(res.online, true);
+  assert.equal(res.data?.phase, 5);
 });
 
 test('Backend Integration: fetchAnalysisReport successfully consumes valid backend report', async () => {

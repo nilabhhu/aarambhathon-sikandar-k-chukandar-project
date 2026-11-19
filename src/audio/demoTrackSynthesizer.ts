@@ -97,8 +97,13 @@ export function synthesizeDemoTrackWavFile(
       (0.30 + 0.06 * hatEnv) * Math.sin(2 * Math.PI * 3980 * t) +
       0.21 * Math.sin(2 * Math.PI * 4520 * t + 0.6);
 
-    const sampleL = Math.max(-0.98, Math.min(0.98, (pink + kick + sub + bass + mudL + mids + harshPeak + air) * fadeEnv));
-    const sampleR = Math.max(-0.98, Math.min(0.98, (pink * 0.94 + kick + sub + bass + mudR + mids + harshPeak * 0.96 + air) * fadeEnv));
+    // Musical verse -> chorus -> outro dynamic contour so the 4.0s clip sits around -14 to -9 LUFS
+    // (preserving the intentional 250–480 Hz mud and 4 kHz harsh resonance ratios without clipping the chart ceiling)
+    const sectionEnv = 0.30 + 0.28 * Math.pow(Math.sin((Math.PI * t) / durationSec), 0.85);
+    const totalEnv = fadeEnv * sectionEnv;
+
+    const sampleL = Math.max(-0.98, Math.min(0.98, (pink + kick + sub + bass + mudL + mids + harshPeak + air) * totalEnv));
+    const sampleR = Math.max(-0.98, Math.min(0.98, (pink * 0.94 + kick + sub + bass + mudR + mids + harshPeak * 0.96 + air) * totalEnv));
 
     view.setInt16(offset, Math.round(sampleL * 32767), true);
     offset += 2;

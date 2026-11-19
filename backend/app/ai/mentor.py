@@ -672,15 +672,20 @@ def generate_ai_mentor_interpretation(
     # Toggle B defaults to False; Phase 5 metrics-only flow sends strictly JSON (0 audio bytes)
     raw_audio_sent = False
 
+    retention_policy = (
+        "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
+        "User explicitly enabled model_training_opt_in=true (Toggle C); zero server audio retention."
+        if allow_model_training
+        else "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
+        "Zero server retention and zero model training on user audio or metrics."
+    )
+
     privacy_audit = AiPrivacyAudit(
         raw_audio_sent_to_ai=raw_audio_sent,
         external_ai_enabled=bool(allow_ai_interpretation),
         direct_audio_inspection_enabled=bool(allow_direct_audio_inspection),
         training_opt_in=bool(allow_model_training),
-        retention_policy=(
-            "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
-            "Zero server retention and zero model training on user audio or metrics."
-        ),
+        retention_policy=retention_policy,
     )
 
     api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()

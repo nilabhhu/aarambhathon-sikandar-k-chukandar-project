@@ -4,13 +4,15 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { motion, MotionConfig } from 'motion/react';
 import {
-  STUDIO_EASE,
-  STUDIO_SPRING,
-  TACTILE_TAP,
-  VIEWPORT_REVEAL,
-} from './lib/motion';
+  AnimatePresence,
+  motion,
+  MotionConfig,
+  useReducedMotion,
+  useScroll,
+  useTransform,
+} from 'motion/react';
+import { BRUT_EASE, BRUT_SPRING, TACTILE_TAP } from './lib/motion';
 import {
   AnalysisReport,
   ArtistVisionTag,
@@ -28,19 +30,18 @@ import { StudioAudioProvider } from './audio/StudioAudioContext';
 import { studioAudioEngine } from './audio/StudioAudioEngine';
 import { synthesizeDemoTrackWavFile } from './audio/demoTrackSynthesizer';
 import { ConsentGatePanel } from './components/ConsentGatePanel';
+import { LiveSpectrumAnalyzer } from './components/LiveSpectrumAnalyzer';
 import { SimpleMixCheckView } from './components/SimpleMixCheckView';
 import { AdvancedMixCheckView } from './components/AdvancedMixCheckView';
 import { ArchitectureHandoffView } from './components/ArchitectureHandoffView';
 import {
-  ArrowRight,
+  ArrowUpRight,
   Sun,
   Moon,
-  Shield,
-  Sliders,
-  BookOpen,
-  Server,
   RefreshCw,
   AlertCircle,
+  Plus,
+  X,
 } from 'lucide-react';
 
 type ActiveRoute = 'home' | 'simple' | 'advanced' | 'architecture';
@@ -54,13 +55,56 @@ function getRouteFromLocation(): ActiveRoute {
   return 'home';
 }
 
+/** Crisp geometric wireframe globe/wave icon for the Hero #FF3B1F red square */
+const WireframeAcousticGlobe: React.FC = () => (
+  <motion.svg
+    viewBox="0 0 80 80"
+    className="w-16 h-16 sm:w-20 sm:h-20 text-white"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    animate={{ rotate: 360 }}
+    transition={{ duration: 28, repeat: Infinity, ease: 'linear' }}
+    aria-hidden="true"
+  >
+    <circle cx="40" cy="40" r="30" />
+    <ellipse cx="40" cy="40" rx="15" ry="30" />
+    <ellipse cx="40" cy="40" rx="30" ry="12" />
+    <line x1="10" y1="40" x2="70" y2="40" />
+    <line x1="40" y1="10" x2="40" y2="70" />
+  </motion.svg>
+);
+
+/** Oversized Swiss geometric asterisk for the #FFD600 yellow feature block */
+const GeometricAsterisk: React.FC = () => {
+  const prefersReduced = useReducedMotion();
+  const { scrollYProgress } = useScroll();
+  const rotate = useTransform(scrollYProgress, [0, 1], [0, prefersReduced ? 0 : 180]);
+
+  return (
+    <motion.svg
+      style={{ rotate }}
+      viewBox="0 0 120 120"
+      className="w-24 h-24 sm:w-28 sm:h-28 text-[#0A0A0A] shrink-0"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <rect x="51" y="6" width="18" height="108" />
+      <rect x="6" y="51" width="108" height="18" />
+      <rect x="51" y="6" width="18" height="108" transform="rotate(45 60 60)" />
+      <rect x="51" y="6" width="18" height="108" transform="rotate(-45 60 60)" />
+    </motion.svg>
+  );
+};
+
 function MixLearnStudioShell() {
   const [route, setRoute] = useState<ActiveRoute>(() => getRouteFromLocation());
-  const [darkMode, setDarkMode] = useState<boolean>(false); // Default Light Mode per design tokens
+  const [darkMode, setDarkMode] = useState<boolean>(false);
   const [genre, setGenre] = useState<GenreId>('indie_rock');
   const [mixStage, setMixStage] = useState<MixStage>('unmastered_mix');
   const [consent, setConsent] = useState<ConsentState>(() => createDefaultConsentState());
   const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [heroSpecsOpen, setHeroSpecsOpen] = useState<boolean>(false);
 
   // File Upload & Lifecycle States
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -77,7 +121,7 @@ function MixLearnStudioShell() {
   const [loadingReport, setLoadingReport] = useState<boolean>(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
-  // Phase 4 & 5 Lifted Session State: Stems, Mix Revision v2 Delta, DAW Context, and Artist Vision
+  // Phase 4 & 5 Lifted Session State
   const [stemReport, setStemReport] = useState<StemMultitrackReport | null>(null);
   const [revisionComparison, setRevisionComparison] = useState<RevisionDeltaReport | null>(null);
   const [dawContext, setDawContext] = useState<UserReportedDawContext>({
@@ -89,13 +133,13 @@ function MixLearnStudioShell() {
   });
   const [artistVision, setArtistVision] = useState<ArtistVisionTag[]>([]);
 
-  // Sync route changes with browser history
   const navigateTo = (newRoute: ActiveRoute) => {
     setRoute(newRoute);
     const targetPath = newRoute === 'home' ? '/' : `/${newRoute}`;
     if (window.location.pathname !== targetPath) {
       window.history.pushState(null, '', targetPath);
     }
+    window.scrollTo({ top: 0, behavior: 'auto' });
   };
 
   useEffect(() => {
@@ -115,7 +159,6 @@ function MixLearnStudioShell() {
     }
   }, [darkMode]);
 
-  // Initial Backend Health Check on Mount (starts in 'checking' state to avoid cold-start flicker)
   useEffect(() => {
     let isCancelled = false;
     setBackendStatus('checking');
@@ -137,7 +180,6 @@ function MixLearnStudioShell() {
     };
   }, []);
 
-  // Real Mathematical DSP Analysis + Singleton StudioAudioEngine Buffer Sync
   const runMixAnalysis = async (
     fileToAnalyze?: File | null,
     targetGenre: GenreId = genre,
@@ -163,7 +205,6 @@ function MixLearnStudioShell() {
     setAnalysisStage('analyzing');
     setReportError(null);
 
-    // Load buffer into singleton StudioAudioEngine in parallel so playback & 6-band FFT persist across routes
     const audioDecodePromise = studioAudioEngine.loadPrimaryFile(file);
 
     const controller = new AbortController();
@@ -235,13 +276,11 @@ function MixLearnStudioShell() {
     }
   };
 
-  // File Selection auto-triggers real DSP analysis
   const handleSelectFile = (file: File) => {
     setSelectedFile(file);
     runMixAnalysis(file, genre, mixStage);
   };
 
-  // Clear Selected File and reset to clean empty state
   const handleClearFile = () => {
     studioAudioEngine.clearPrimaryMix();
     setSelectedFile(null);
@@ -251,7 +290,6 @@ function MixLearnStudioShell() {
     setReportError(null);
   };
 
-  // Cancel in-flight DSP analysis
   const handleCancelAnalysis = () => {
     abortControllerRef.current?.abort();
     setIsAnalyzing(false);
@@ -264,7 +302,6 @@ function MixLearnStudioShell() {
     runMixAnalysis(fileToAnalyze || selectedFile, genre, mixStage);
   };
 
-  // Explicit user-triggered "LOAD DEMO TRACK" action (synthesizes playable stereo WAV + calibrated 2-zone scan)
   const handleLoadDemoTrack = async () => {
     const demoFile = synthesizeDemoTrackWavFile('checkmix_demo_track_24bit.wav');
     setSelectedFile(demoFile);
@@ -288,14 +325,12 @@ function MixLearnStudioShell() {
     setAnalysisStage('complete');
     setIsAnalyzing(false);
 
-    // Decode playable synthesized WAV in StudioAudioEngine so transport, waveform, and FFT stay synchronized
     await studioAudioEngine.loadPrimaryFile(
       demoFile,
       demoReport.measurements.integrated_loudness.value
     );
   };
 
-  // Manual or on-demand backend health check
   const handleCheckBackendHealth = async () => {
     setBackendStatus('checking');
     try {
@@ -307,92 +342,137 @@ function MixLearnStudioShell() {
   };
 
   const navItems: Array<{ id: ActiveRoute; href: string; label: string; shortLabel: string }> = [
-    { id: 'home', href: '/', label: 'Overview', shortLabel: 'Overview' },
-    { id: 'simple', href: '/simple', label: 'Simple Mix Check', shortLabel: 'Simple' },
-    { id: 'advanced', href: '/advanced', label: 'Advanced Mix Check', shortLabel: 'Advanced' },
-    { id: 'architecture', href: '/architecture', label: 'System Architecture', shortLabel: 'System' },
+    { id: 'home', href: '/', label: 'OVERVIEW', shortLabel: 'HOME' },
+    { id: 'simple', href: '/simple', label: 'SIMPLE CHECK', shortLabel: 'SIMPLE' },
+    { id: 'advanced', href: '/advanced', label: 'ADVANCED LAB', shortLabel: 'ADVANCED' },
+    { id: 'architecture', href: '/architecture', label: 'ARCHITECTURE', shortLabel: 'SYSTEM' },
   ];
 
+  const engineLabel =
+    backendStatus === 'checking'
+      ? 'ENGINE: CONNECTING TO DSP...'
+      : backendStatus === 'online'
+      ? 'ENGINE: FASTAPI ONLINE'
+      : 'ENGINE: LOCAL WEB AUDIO';
+
   return (
-    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] transition-colors duration-200">
-      {/* Studio Top Navigation Bar — 3-Zone Contract with Sliding layoutId Pill Track */}
-      <header className="sticky top-0 z-40 bg-[var(--bg-elevated)]/95 backdrop-blur-sm studio-hairline-b">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-6 px-4 sm:px-6 py-3.5">
-          {/* Zone 1: Wordmark */}
-          <a
-            href="/"
-            onClick={(e) => {
-              e.preventDefault();
-              navigateTo('home');
-            }}
-            className="text-lg font-bold tracking-[-0.02em] text-[var(--text-primary)] whitespace-nowrap shrink-0 font-display"
-          >
-            MixLearn Studio
-          </a>
+    <div className="min-h-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--ink)] overflow-x-clip">
+      {/* TOP SWISS GRID NAVIGATION BAR */}
+      <header className="sticky top-0 z-40 bg-[var(--bg-canvas)] border-b-2 border-[var(--border-ink)]">
+        <div className="max-w-[1440px] mx-auto">
+          {/* Desktop Architectural Row */}
+          <div className="hidden lg:flex items-stretch justify-between">
+            {/* Brand Cell */}
+            <a
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                navigateTo('home');
+              }}
+              className="px-5 py-3.5 border-r-2 border-[var(--border-ink)] font-display text-2xl leading-none tracking-tight text-[var(--ink)] flex items-center whitespace-nowrap shrink-0 hover:bg-[#FFD600] hover:text-[#0A0A0A] transition-colors"
+            >
+              MIXLEARN.
+            </a>
 
-          {/* Zone 2: Recessed #F5F5F7 Segmented Mode Track with layoutId="workspace-mode-pill" */}
-          <nav
-            aria-label="Primary Navigation"
-            className="hidden md:flex items-center gap-1 p-1 bg-[var(--bg-surface)] squircle-inner border border-[var(--border-hairline-color)]"
-          >
-            {navItems.map((item) => {
-              const isActive = route === item.id;
-              return (
-                <a
-                  key={item.id}
-                  href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    navigateTo(item.id);
-                  }}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={`relative px-3.5 py-1.5 text-xs font-medium squircle-inner transition-colors whitespace-nowrap shrink-0 ${
-                    isActive
-                      ? 'text-white font-semibold'
-                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  {isActive && (
-                    <motion.span
-                      layoutId="workspace-mode-pill"
-                      transition={STUDIO_SPRING}
-                      className="absolute inset-0 bg-[var(--accent-primary)] squircle-inner"
-                    />
-                  )}
-                  <span className="relative z-10">{item.label}</span>
-                </a>
-              );
-            })}
-          </nav>
+            {/* Descriptor Cell */}
+            <div className="hidden xl:flex items-center px-4 border-r-2 border-[var(--border-ink)] font-mono text-[11px] font-bold uppercase tracking-widest text-[var(--ink-muted)] whitespace-nowrap shrink-0">
+              AUDIO DSP STUDIO
+            </div>
 
-          {/* Zone 3: Single Primary Action */}
-          <div className="flex items-center gap-2 shrink-0">
+            {/* Navigation Cells */}
+            <nav
+              aria-label="Primary Navigation"
+              className="flex items-stretch flex-1 divide-x-[1.5px] divide-[var(--border-ink)]"
+            >
+              {navItems.map((item) => {
+                const isActive = route === item.id;
+                return (
+                  <a
+                    key={item.id}
+                    href={item.href}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigateTo(item.id);
+                    }}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`relative flex-1 flex items-center justify-center px-3 py-3.5 font-ui text-xs font-bold uppercase tracking-wider whitespace-nowrap transition-colors ${
+                      isActive
+                        ? 'text-[var(--bg-canvas)]'
+                        : 'text-[var(--ink)] hover:bg-[var(--bg-surface)]'
+                    }`}
+                  >
+                    {isActive && (
+                      <motion.span
+                        layoutId="brut-nav-active"
+                        transition={BRUT_SPRING}
+                        className="absolute inset-0 bg-[var(--ink)]"
+                      />
+                    )}
+                    <span className="relative z-10">{item.label}</span>
+                  </a>
+                );
+              })}
+            </nav>
+
+            {/* Theme Toggle Cell */}
+            <button
+              type="button"
+              onClick={() => setDarkMode((d) => !d)}
+              aria-label={darkMode ? 'Switch to Default Light Mode' : 'Switch to Dark Mode'}
+              data-testid="theme-toggle-btn"
+              className="px-3.5 border-l-2 border-[var(--border-ink)] flex items-center gap-1.5 font-mono text-[11px] font-bold uppercase tracking-wider text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+              <span>{darkMode ? 'PAPER' : 'INK'}</span>
+            </button>
+
+            {/* Primary CTA Cell — Solid #FFD600 Yellow */}
             <motion.button
               type="button"
               whileTap={TACTILE_TAP}
               onClick={() => navigateTo(route === 'simple' ? 'advanced' : 'simple')}
-              className="px-4 py-2 text-xs font-semibold text-white bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] squircle-inner transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              className="group px-5 py-3.5 border-l-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-ui text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors cursor-pointer"
             >
-              {route === 'simple' ? 'Open Advanced Check' : 'Start Simple Check'}
+              <span>{route === 'simple' ? 'ADVANCED LAB' : 'START MIX CHECK'}</span>
+              <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
             </motion.button>
           </div>
-        </div>
-      </header>
 
-      {/* Ultra-Clean Single-Line Studio Context Sub-Header */}
-      <div className="bg-[var(--bg-surface)] studio-hairline-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--text-secondary)]">
-          <div className="flex items-center gap-2 font-mono tabular-nums min-w-0 truncate">
-            <span className="truncate">{GENRE_LABELS[genre]}</span>
-            <span aria-hidden="true" className="opacity-40">·</span>
-            <span className="whitespace-nowrap shrink-0">{MIX_STAGE_LABELS[mixStage].title}</span>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between md:justify-end gap-2 w-full md:w-auto">
-            {/* Mobile Compact Route Switcher */}
+          {/* Mobile / Tablet 2-Row Swiss Grid Header (Zero Horizontal Overflow at 390px) */}
+          <div className="lg:hidden">
+            <div className="flex items-stretch justify-between border-b-[1.5px] border-[var(--border-ink)]">
+              <a
+                href="/"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateTo('home');
+                }}
+                className="px-4 py-3 font-display text-xl leading-none tracking-tight text-[var(--ink)] flex items-center"
+              >
+                MIXLEARN.
+              </a>
+              <div className="flex items-stretch">
+                <button
+                  type="button"
+                  onClick={() => setDarkMode((d) => !d)}
+                  aria-label={darkMode ? 'Switch to Default Light Mode' : 'Switch to Dark Mode'}
+                  className="px-3 border-l-[1.5px] border-[var(--border-ink)] flex items-center justify-center text-[var(--ink)] cursor-pointer"
+                >
+                  {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigateTo(route === 'simple' ? 'advanced' : 'simple')}
+                  className="px-3.5 border-l-[1.5px] border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] font-ui text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 cursor-pointer whitespace-nowrap"
+                >
+                  <span>{route === 'simple' ? 'ADVANCED' : 'START'}</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
             <nav
               aria-label="Mobile Navigation"
-              className="flex md:hidden items-center gap-1 p-0.5 bg-[var(--bg-elevated)] squircle-inner border border-[var(--border-hairline-color)] max-w-full overflow-x-auto"
+              className="grid grid-cols-4 divide-x-[1.5px] divide-[var(--border-ink)]"
             >
               {navItems.map((item) => {
                 const isActive = route === item.id;
@@ -401,10 +481,10 @@ function MixLearnStudioShell() {
                     key={item.id}
                     type="button"
                     onClick={() => navigateTo(item.id)}
-                    className={`px-2 py-1 squircle-inner text-[11px] font-medium whitespace-nowrap transition-colors ${
+                    className={`py-2.5 text-center font-mono text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                       isActive
-                        ? 'bg-[var(--accent-primary)] text-white font-semibold'
-                        : 'text-[var(--text-secondary)]'
+                        ? 'bg-[var(--ink)] text-[var(--bg-canvas)]'
+                        : 'bg-[var(--bg-canvas)] text-[var(--ink)]'
                     }`}
                   >
                     {item.shortLabel}
@@ -412,327 +492,457 @@ function MixLearnStudioShell() {
                 );
               })}
             </nav>
+          </div>
+        </div>
+      </header>
 
-            {/* Live FastAPI DSP Engine Status Pill */}
+      {/* SUB-HEADER CONTEXT BAR (Only on /simple, /advanced, /architecture to keep / Overview clean) */}
+      {route !== 'home' && (
+        <div className="border-b-2 border-[var(--border-ink)] bg-[var(--bg-surface)]">
+          <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] tabular-nums">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="font-bold uppercase text-[var(--ink)] truncate">
+                {GENRE_LABELS[genre]}
+              </span>
+              <span className="opacity-40">/</span>
+              <span className="uppercase text-[var(--ink-muted)] whitespace-nowrap">
+                {MIX_STAGE_LABELS[mixStage].title}
+              </span>
+            </div>
+
             <div
               data-testid="engine-status-indicator"
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner text-[11px] font-mono tabular-nums whitespace-nowrap shrink-0 ${
-                backendStatus === 'online'
-                  ? 'bg-[var(--accent-soft)] text-[var(--accent-primary)] border border-[var(--border-active-color)]'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] border border-[var(--border-hairline-color)]'
-              }`}
+              className="inline-flex items-center gap-2 px-2.5 py-0.5 border-[1.5px] border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] font-bold uppercase tracking-wider text-[10px]"
             >
-              <Server className="w-3 h-3 shrink-0" />
-              <span>
-                {backendStatus === 'checking'
-                  ? 'Engine: Connecting...'
-                  : backendStatus === 'online'
-                  ? 'Engine: FastAPI DSP (Online)'
-                  : 'Engine: Local Web Audio'}
-              </span>
+              <span
+                className={`w-2 h-2 ${
+                  backendStatus === 'online' ? 'bg-[#0A0A0A]' : 'bg-[#FF3B1F]'
+                }`}
+              />
+              <span>{engineLabel}</span>
               <button
                 type="button"
                 onClick={handleCheckBackendHealth}
                 title="Re-check FastAPI DSP status"
                 aria-label="Re-check FastAPI DSP status"
-                className="hover:opacity-75 ml-0.5 cursor-pointer"
+                className="ml-0.5 hover:opacity-70 cursor-pointer"
               >
                 <RefreshCw
-                  className={`w-3 h-3 ${backendStatus === 'checking' || loadingReport ? 'animate-spin' : ''}`}
+                  className={`w-3 h-3 ${
+                    backendStatus === 'checking' || loadingReport ? 'animate-spin' : ''
+                  }`}
                 />
               </button>
             </div>
-
-            {/* Light / Dark Studio Theme Toggle */}
-            <motion.button
-              type="button"
-              whileTap={TACTILE_TAP}
-              onClick={() => setDarkMode((d) => !d)}
-              aria-label={darkMode ? 'Switch to Default Light Mode' : 'Switch to Secondary Dark Mode'}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] text-[var(--text-primary)] hover:border-[var(--border-active-color)] transition-colors whitespace-nowrap shrink-0 text-[11px] font-medium cursor-pointer"
-            >
-              {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-              <span>{darkMode ? 'Light' : 'Dark'}</span>
-            </motion.button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Main Content Viewport */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8 sm:py-10">
+      {/* MAIN VIEWPORT */}
+      <main className="flex-1 w-full max-w-[1440px] mx-auto border-x-0 xl:border-x-2 border-[var(--border-ink)]">
+        {/* ============================================================
+            ROUTE: OVERVIEW (/) — SWISS NEO-BRUTALIST EDITORIAL GRID
+        ============================================================ */}
         {route === 'home' && (
-          <div className="space-y-12">
-            {/* Editorial Acoustic-Engineering Hero */}
-            <motion.section
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.45, ease: STUDIO_EASE }}
-              className="studio-elevated squircle-outer p-7 sm:p-10 lg:p-12"
+          <div>
+            {/* 1. HERO SPLIT */}
+            <section
+              aria-label="MixLearn Studio Hero"
+              className="grid grid-cols-1 lg:grid-cols-12 border-b-2 border-[var(--border-ink)]"
             >
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
-                <div className="lg:col-span-8 space-y-5">
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-[var(--accent-primary)] font-medium">
-                    <span>Acoustic Diagnostics Workbench</span>
-                    <span aria-hidden="true" className="opacity-40">·</span>
-                    <span className="text-[var(--text-secondary)]">ITU-R BS.1770-4 &amp; EBU R128</span>
+              {/* Left Column: Giant Stacked Anton Headline */}
+              <div className="lg:col-span-6 p-6 sm:p-10 lg:p-12 lg:border-r-2 border-b-2 lg:border-b-0 border-[var(--border-ink)] flex flex-col justify-between gap-8 bg-[var(--bg-canvas)]">
+                <div className="space-y-6">
+                  <div className="inline-flex items-center gap-2 font-mono text-[11px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                    <span className="px-2 py-0.5 bg-[var(--ink)] text-[var(--bg-canvas)]">
+                      ITU-R BS.1770-4
+                    </span>
+                    <span>EBU R128 · WELCH PSD</span>
                   </div>
 
-                  <h1 className="text-3xl sm:text-4xl lg:text-[2.65rem] font-bold leading-[1.12] tracking-[-0.02em] text-[var(--text-primary)] text-balance">
-                    Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.
+                  <h1 className="font-display text-[clamp(3.3rem,7vw,6.2rem)] leading-[0.89] tracking-[-0.02em] uppercase text-[var(--ink)]">
+                    {['MIX', 'WITHOUT', 'GUESSWORK.'].map((line, i) => (
+                      <span key={line} className="block overflow-hidden">
+                        <motion.span
+                          className="block"
+                          initial={{ y: '105%' }}
+                          animate={{ y: 0 }}
+                          transition={{
+                            duration: 0.48,
+                            delay: i * 0.08,
+                            ease: BRUT_EASE,
+                          }}
+                        >
+                          {line}
+                        </motion.span>
+                      </span>
+                    ))}
                   </h1>
 
-                  <p className="text-sm sm:text-base text-[var(--text-secondary)] max-w-2xl leading-[1.6]">
-                    Measure every bounce with mathematical DSP as the single source of truth. Inspect tonal balance against genre curves, audit user-uploaded original stems for spectral masking, verify v1 to v2 revision improvements, and unlock consent-gated coaching grounded strictly in measured evidence.
-                  </p>
-
-                  <div className="pt-2 flex flex-wrap items-center gap-3">
-                    <motion.button
-                      type="button"
-                      whileTap={TACTILE_TAP}
-                      onClick={() => navigateTo('simple')}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      <span>Open Simple Mix Check</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </motion.button>
-                    <motion.button
-                      type="button"
-                      whileTap={TACTILE_TAP}
-                      onClick={() => navigateTo('advanced')}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-surface)] hover:border-[var(--border-active-color)] text-[var(--text-primary)] text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      <span>Open Advanced Workbench</span>
-                    </motion.button>
-                    <button
-                      type="button"
-                      onClick={() => navigateTo('architecture')}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-[var(--accent-primary)] hover:underline underline-offset-4 text-sm font-medium whitespace-nowrap shrink-0 cursor-pointer"
-                    >
-                      <span>System Architecture</span>
-                    </button>
+                  {/* Yellow Square Bullet Tagline */}
+                  <div className="flex items-start gap-3 pt-1">
+                    <span
+                      className="w-3.5 h-3.5 mt-0.5 bg-[#FFD600] border-[1.5px] border-[var(--border-ink)] shrink-0"
+                      aria-hidden="true"
+                    />
+                    <p className="font-mono text-xs sm:text-[13px] font-bold uppercase tracking-wider text-[var(--ink)]">
+                      DETERMINISTIC DSP. LIVE SPECTRUM. PRIVACY-FIRST AI.
+                    </p>
                   </div>
                 </div>
 
-                {/* Right Editorial Acoustic Specification Ledger */}
-                <aside
-                  aria-label="Measurement Engine Specifications"
-                  className="lg:col-span-4 studio-surface squircle-inner p-5 space-y-4"
-                >
-                  <div className="text-xs font-mono text-[var(--text-secondary)] pb-2.5 studio-hairline-b flex items-center justify-between">
-                    <span>Reference Calibration</span>
-                    <span className="text-[var(--accent-primary)] font-medium">v{activeReport?.schema_version || '2.0.0'}</span>
-                  </div>
-                  <dl className="space-y-3 text-xs">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="text-[var(--text-secondary)]">Loudness Standard</dt>
-                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">ITU-R BS.1770-4</dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="text-[var(--text-secondary)]">True Peak Oversampling</dt>
-                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">4× Polyphase ISP</dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="text-[var(--text-secondary)]">Spectral Resolution</dt>
-                      <dd className="font-mono tabular-nums font-medium text-[var(--text-primary)]">6-Band Welch PSD</dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3">
-                      <dt className="text-[var(--text-secondary)]">Stem Policy (Rule 1)</dt>
-                      <dd className="font-mono font-medium text-[var(--status-safe)]">Original Stems Only</dd>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3 pt-2.5 studio-hairline-t">
-                      <dt className="text-[var(--text-secondary)]">Default AI Training</dt>
-                      <dd className="font-mono font-medium text-[var(--text-primary)]">Disabled (False)</dd>
-                    </div>
-                  </dl>
-                </aside>
-              </div>
-            </motion.section>
-
-            {/* Asymmetric Two-Column Split: Simple Mix Check vs. Advanced Workbench */}
-            <section
-              aria-label="Dual Interface Architecture"
-              className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch"
-            >
-              {/* Left (5 cols): Simple Mix Check */}
-              <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={VIEWPORT_REVEAL}
-                transition={{ duration: 0.4, ease: STUDIO_EASE }}
-                className="lg:col-span-5 studio-elevated squircle-outer p-7 flex flex-col justify-between"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs font-mono text-[var(--text-secondary)]">
-                    <span>01 · Focused Guidance</span>
-                    <span>/simple</span>
-                  </div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2.5">
-                    <BookOpen className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
-                    <span>Simple Mix Check</span>
-                  </h2>
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                    Built for independent artists who want a distraction-free read on loudness, headroom, tonal balance, and the top three DAW adjustments to make next.
-                  </p>
-                  <ol className="space-y-2.5 pt-2 text-xs text-[var(--text-secondary)] border-t border-[var(--border-hairline-color)]">
-                    <li className="flex items-baseline gap-2.5">
-                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">01</span>
-                      <span>Choose your genre and Unmastered Mix or Final Master stage.</span>
-                    </li>
-                    <li className="flex items-baseline gap-2.5">
-                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">02</span>
-                      <span>Review 4 core diagnostics and your 6-band spectral curve vs. genre envelope.</span>
-                    </li>
-                    <li className="flex items-baseline gap-2.5">
-                      <span className="font-mono tabular-nums text-[var(--accent-primary)] font-semibold">03</span>
-                      <span>Work through top-3 plain-language DAW fixes with collapsible learning guides.</span>
-                    </li>
-                  </ol>
-                </div>
-
-                <div className="mt-7 pt-5 studio-hairline-t">
+                {/* Primary Hero CTAs */}
+                <div className="flex flex-wrap items-center gap-3 pt-2">
                   <motion.button
                     type="button"
                     whileTap={TACTILE_TAP}
                     onClick={() => navigateTo('simple')}
-                    className="w-full py-2.5 px-4 squircle-inner bg-[var(--text-primary)] text-[var(--bg-elevated)] hover:opacity-90 text-xs font-semibold transition-opacity cursor-pointer"
+                    className="group inline-flex items-center gap-2.5 px-6 py-3.5 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] font-ui text-xs sm:text-sm font-bold uppercase tracking-wider transition-colors cursor-pointer"
                   >
-                    Launch Simple Mix Check
+                    <span>OPEN SIMPLE CHECK</span>
+                    <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
                   </motion.button>
-                </div>
-              </motion.div>
 
-              {/* Right (7 cols): Advanced Mix Check Workbench */}
-              <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={VIEWPORT_REVEAL}
-                transition={{ duration: 0.4, delay: 0.08, ease: STUDIO_EASE }}
-                className="lg:col-span-7 studio-elevated squircle-outer p-7 flex flex-col justify-between"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs font-mono text-[var(--text-secondary)]">
-                    <span>02 · Full Studio Workbench</span>
-                    <span>/advanced</span>
-                  </div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2.5">
-                    <Sliders className="w-5 h-5 text-[var(--accent-primary)] shrink-0" />
-                    <span>Advanced Mix Check</span>
-                  </h2>
-                  <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                    Precision playback and diagnostic console sharing the exact same DSP engine—adding sample-locked Reference A/B switching, Translation Lab filters, multitrack stem overlap matrices, and v1 to v2 revision delta verification.
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-3 border-t border-[var(--border-hairline-color)] text-xs text-[var(--text-secondary)]">
-                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
-                      <div className="font-semibold text-[var(--text-primary)]">Loudness-Matched A/B &amp; Lab</div>
-                      <p>15ms click-free Mix A / Reference B switching, equal-power Mono fold, and Phone/Laptop filter approximations.</p>
-                    </div>
-                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
-                      <div className="font-semibold text-[var(--text-primary)]">Time-Domain &amp; Phase Sync</div>
-                      <p>60fps canvas waveform markers linked to Short-Term LUFS trajectory and live Stereo Phase Correlation meter.</p>
-                    </div>
-                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
-                      <div className="font-semibold text-[var(--text-primary)]">Original Stems Matrix (Rule 1)</div>
-                      <p>Upload 2–8 genuine DAW stems to measure pairwise 6-band spectral overlap—zero AI stem fabrication.</p>
-                    </div>
-                    <div className="studio-surface squircle-inner p-3.5 space-y-1">
-                      <div className="font-semibold text-[var(--text-primary)]">v1 → v2 Revision Deltas</div>
-                      <p>Track exact LUFS, True Peak, LRA, phase, and tonal shifts to confirm every finding improved cleanly.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-7 pt-5 studio-hairline-t">
                   <motion.button
                     type="button"
                     whileTap={TACTILE_TAP}
                     onClick={() => navigateTo('advanced')}
-                    className="w-full py-2.5 px-4 squircle-inner bg-[var(--accent-primary)] hover:bg-[var(--accent-primary-hover)] text-white text-xs font-semibold transition-colors cursor-pointer"
+                    className="group inline-flex items-center gap-2 px-5 py-3.5 border-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] hover:bg-[#0A0A0A] hover:text-[#FFD600] font-ui text-xs sm:text-sm font-bold uppercase tracking-wider transition-colors cursor-pointer"
                   >
-                    Launch Advanced Workbench
+                    <span>ADVANCED LAB</span>
+                    <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
                   </motion.button>
                 </div>
-              </motion.div>
+              </div>
+
+              {/* Right Column: Studio Copy + Red Wireframe Icon Block + Hero Live Spectrum */}
+              <div className="lg:col-span-6 flex flex-col bg-[var(--bg-surface)]">
+                {/* Upper Info & Red Graphic Square */}
+                <div className="flex items-stretch border-b-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]">
+                  <div className="flex-1 p-5 sm:p-6 flex flex-col justify-between gap-4">
+                    <p className="text-xs sm:text-sm text-[var(--ink-muted)] leading-relaxed">
+                      Measure every bounce with mathematical DSP as the sole source of truth. Audit loudness, true peak headroom, live 60fps spectrum, multitrack stem overlap, and v1→v2 revisions with zero cloud retention.
+                    </p>
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t-[1.5px] border-[var(--border-ink)]/20">
+                      <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-[var(--ink-muted)]">
+                        RULE 1: NO AI STEM FABRICATION
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setHeroSpecsOpen((v) => !v)}
+                        aria-expanded={heroSpecsOpen}
+                        aria-label="Toggle DSP calibration specifications"
+                        className="w-8 h-8 border-[1.5px] border-[var(--border-ink)] bg-[var(--bg-surface)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] flex items-center justify-center transition-colors cursor-pointer shrink-0"
+                      >
+                        {heroSpecsOpen ? (
+                          <X className="w-4 h-4" />
+                        ) : (
+                          <Plus className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Solid #FF3B1F Vermilion Square with Animated Wireframe Globe */}
+                  <div className="w-28 sm:w-36 border-l-2 border-[var(--border-ink)] bg-[#FF3B1F] flex flex-col items-center justify-center p-3 shrink-0">
+                    <WireframeAcousticGlobe />
+                    <span className="font-mono text-[9px] font-bold uppercase tracking-widest text-white mt-2">
+                      48KHZ · 60FPS
+                    </span>
+                  </div>
+                </div>
+
+                {/* Expandable Calibration Strip triggered by '+' button */}
+                <AnimatePresence initial={false}>
+                  {heroSpecsOpen && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: BRUT_EASE }}
+                      className="overflow-hidden border-b-2 border-[var(--border-ink)] bg-[var(--ink)] text-[var(--bg-canvas)]"
+                    >
+                      <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-[var(--bg-canvas)]/20 font-mono text-[10px] uppercase">
+                        <div className="p-3">
+                          <div className="opacity-60">LOUDNESS</div>
+                          <div className="font-bold mt-0.5">ITU-R BS.1770-4</div>
+                        </div>
+                        <div className="p-3">
+                          <div className="opacity-60">TRUE PEAK</div>
+                          <div className="font-bold mt-0.5">4× POLYPHASE ISP</div>
+                        </div>
+                        <div className="p-3">
+                          <div className="opacity-60">STEM POLICY</div>
+                          <div className="font-bold mt-0.5 text-[#FFD600]">ORIGINAL ONLY</div>
+                        </div>
+                        <div className="p-3">
+                          <div className="opacity-60">AI TRAINING</div>
+                          <div className="font-bold mt-0.5">FALSE (LOCKED)</div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Live 60fps Interactive Music Spectrum Analyzer Hero Stage */}
+                <div className="p-4 sm:p-5 flex-1 flex flex-col justify-center">
+                  <LiveSpectrumAnalyzer
+                    mode="hero"
+                    height={216}
+                    title="LIVE SPECTRUM ANALYZER · 20 HZ – 20 KHZ"
+                    subtitle="POINTER REACTIVE"
+                  />
+                </div>
+              </div>
             </section>
 
-            {/* Five-Tier Consent & Privacy Gate */}
-            <ConsentGatePanel consent={consent} onChangeConsent={setConsent} />
-
-            {/* Ten Non-Negotiable Product Rules — Clean Editorial Ledger */}
-            <motion.section
-              aria-label="Ten Absolute Product Rules"
-              initial={{ opacity: 0, y: 12 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={VIEWPORT_REVEAL}
-              transition={{ duration: 0.4, ease: STUDIO_EASE }}
-              className="studio-elevated squircle-outer p-7"
+            {/* 2. FULL-WIDTH STATUS STRIP */}
+            <section
+              aria-label="Studio Engine Status Strip"
+              className="grid grid-cols-1 lg:grid-cols-12 border-b-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]"
             >
-              <div className="flex flex-wrap items-baseline justify-between gap-2 pb-4 studio-hairline-b">
-                <div>
-                  <div className="flex items-center gap-2 text-xs font-mono text-[var(--accent-primary)]">
-                    <Shield className="w-3.5 h-3.5" />
-                    <span>Engineering &amp; Privacy Invariants</span>
-                  </div>
-                  <h2 className="text-lg font-bold text-[var(--text-primary)] mt-1">
-                    Ten Non-Negotiable Studio Rules
-                  </h2>
-                </div>
-                <span className="text-xs font-mono text-[var(--text-secondary)]">
-                  Enforced by JSON Schema &amp; Automated Tests
+              {/* Rotated Vertical (2026) Cell */}
+              <div className="hidden lg:flex lg:col-span-1 border-r-2 border-[var(--border-ink)] items-center justify-center py-4 bg-[var(--bg-surface)]">
+                <span className="writing-vertical font-mono text-xs font-bold tracking-widest text-[var(--ink)]">
+                  (2026)
                 </span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 mt-5 text-xs text-[var(--text-secondary)] leading-relaxed">
-                <div>
-                  <strong className="text-[var(--text-primary)]">01. No AI Stem Splitting:</strong> Never fabricate pseudo-stems from stereo mixdowns. Stem overlap runs solely on genuine user-uploaded multitracks.
+
+              {/* Editorial Tagline Cell */}
+              <button
+                type="button"
+                onClick={() => navigateTo('simple')}
+                className="lg:col-span-8 px-6 py-5 flex items-center justify-between gap-4 text-left hover:bg-[var(--bg-surface)] transition-colors cursor-pointer border-b-2 lg:border-b-0 border-[var(--border-ink)]"
+              >
+                <span className="font-ui text-sm sm:text-base font-bold uppercase tracking-wide text-[var(--ink)]">
+                  LEARN MIXING BY DOING MIXING. DETERMINISTIC EBU R128 + AI MENTOR.
+                </span>
+                <span className="font-display text-2xl leading-none text-[var(--ink)] shrink-0">
+                  →
+                </span>
+              </button>
+
+              {/* Solid #FFD600 Live Engine Online Block */}
+              <div
+                data-testid="engine-status-indicator"
+                className="lg:col-span-3 lg:border-l-2 border-[var(--border-ink)] bg-[#FFD600] text-[#0A0A0A] px-5 py-4 flex items-center justify-between gap-3"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span
+                    className={`w-3 h-3 shrink-0 ${
+                      backendStatus === 'online'
+                        ? 'bg-[#0A0A0A] animate-pulse'
+                        : backendStatus === 'checking'
+                        ? 'bg-[#0A0A0A]/50'
+                        : 'bg-[#FF3B1F]'
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider truncate">
+                    {engineLabel}
+                  </span>
                 </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">02. DSP Source of Truth:</strong> Mathematical DSP calculations are the sole source of objective measurements. AI never invents metrics.
+                <button
+                  type="button"
+                  onClick={handleCheckBackendHealth}
+                  title="Re-check FastAPI DSP status"
+                  aria-label="Re-check FastAPI DSP status"
+                  className="p-1.5 border-[1.5px] border-[#0A0A0A] bg-[#FFD600] hover:bg-[#0A0A0A] hover:text-[#FFD600] transition-colors cursor-pointer shrink-0"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 ${
+                      backendStatus === 'checking' || loadingReport ? 'animate-spin' : ''
+                    }`}
+                  />
+                </button>
+              </div>
+            </section>
+
+            {/* 3. NUMBERED 01 / 02 / 03 WORKFLOW ROWS */}
+            <section
+              aria-label="Core Studio Workflows"
+              className="grid grid-cols-1 lg:grid-cols-12 border-b-2 border-[var(--border-ink)]"
+            >
+              {/* Left Column: Core Workflows Heading */}
+              <div className="lg:col-span-4 p-6 sm:p-8 lg:border-r-2 border-b-2 lg:border-b-0 border-[var(--border-ink)] bg-[var(--bg-surface)] flex flex-col justify-between gap-6">
+                <div className="space-y-3">
+                  <div className="font-mono text-[11px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                    DUAL-MODE INTERFACE
+                  </div>
+                  <h2 className="font-display text-4xl sm:text-5xl leading-[0.9] uppercase text-[var(--ink)]">
+                    CORE
+                    <br />
+                    WORKFLOWS ↓
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[var(--ink-muted)] leading-relaxed pt-2">
+                    Start clean in Simple Check for plain-English diagnostics and top-3 DAW actions, or open the full Advanced Workbench with 60fps meters, Reference A/B, and original stem masking.
+                  </p>
                 </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">03. Technical Integrity:</strong> Creative vision tags guide stylistic advice but never suppress measurable technical warnings.
+
+                <motion.button
+                  type="button"
+                  whileTap={TACTILE_TAP}
+                  onClick={() => navigateTo('advanced')}
+                  className="group self-start inline-flex items-center gap-2 px-5 py-3 border-2 border-[var(--border-ink)] bg-[var(--bg-canvas)] text-[var(--ink)] hover:bg-[var(--ink)] hover:text-[var(--bg-canvas)] font-ui text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  <span>OPEN ADVANCED</span>
+                  <ArrowUpRight className="w-4 h-4 transition-transform duration-150 group-hover:translate-x-[3px] group-hover:-translate-y-[3px]" />
+                </motion.button>
+              </div>
+
+              {/* Right Column: Stacked 01 / 02 (Red Highlight) / 03 Rows */}
+              <div className="lg:col-span-8 divide-y-2 divide-[var(--border-ink)]">
+                {/* 01 — Simple Mix Check */}
+                <button
+                  type="button"
+                  onClick={() => navigateTo('simple')}
+                  className="group w-full p-6 sm:p-8 bg-[var(--bg-canvas)] hover:bg-[var(--bg-surface)] text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start sm:items-center gap-5 sm:gap-7">
+                    <span className="font-display text-5xl sm:text-6xl leading-none text-[var(--ink)] shrink-0">
+                      01
+                    </span>
+                    <div>
+                      <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                        /SIMPLE · BEGINNER QUICK CHECK
+                      </div>
+                      <h3 className="font-display text-2xl sm:text-3xl uppercase text-[var(--ink)] mt-1">
+                        SIMPLE MIX CHECK
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[var(--ink-muted)] mt-1 max-w-xl">
+                        4 plain-English traffic-light meters, compact live spectrum, and prioritized 01/02/03 DAW action drawers.
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowUpRight className="w-7 h-7 text-[var(--ink)] shrink-0 transition-transform duration-150 group-hover:translate-x-1 group-hover:-translate-y-1" />
+                </button>
+
+                {/* 02 — Advanced Workbench (Highlighted Solid #FF3B1F Vermilion Row) */}
+                <button
+                  type="button"
+                  onClick={() => navigateTo('advanced')}
+                  className="group w-full p-6 sm:p-8 bg-[#FF3B1F] hover:bg-[#E02D12] text-white text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start sm:items-center gap-5 sm:gap-7">
+                    <span className="font-display text-5xl sm:text-6xl leading-none text-white shrink-0">
+                      02
+                    </span>
+                    <div>
+                      <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-white/85">
+                        /ADVANCED · FULL ENGINEER CONSOLE
+                      </div>
+                      <h3 className="font-display text-2xl sm:text-3xl uppercase text-white mt-1">
+                        ADVANCED WORKBENCH
+                      </h3>
+                      <p className="text-xs sm:text-sm text-white/90 mt-1 max-w-xl">
+                        60fps Waveform, Live FFT Spectrum, Peak/LUFS, 2D Vectorscope, loudness-matched Reference A/B, and Phone/Laptop Lab.
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowUpRight className="w-7 h-7 text-white shrink-0 transition-transform duration-150 group-hover:translate-x-1 group-hover:-translate-y-1" />
+                </button>
+
+                {/* 03 — Stems, Revisions & AI */}
+                <button
+                  type="button"
+                  onClick={() => navigateTo('advanced')}
+                  className="group w-full p-6 sm:p-8 bg-[var(--bg-canvas)] hover:bg-[var(--bg-surface)] text-left flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors cursor-pointer"
+                >
+                  <div className="flex items-start sm:items-center gap-5 sm:gap-7">
+                    <span className="font-display text-5xl sm:text-6xl leading-none text-[var(--ink)] shrink-0">
+                      03
+                    </span>
+                    <div>
+                      <div className="font-mono text-[10px] font-bold uppercase tracking-widest text-[var(--ink-muted)]">
+                        RULE 1 &amp; RULE 4 ENFORCED
+                      </div>
+                      <h3 className="font-display text-2xl sm:text-3xl uppercase text-[var(--ink)] mt-1">
+                        STEMS, REVISIONS &amp; AI
+                      </h3>
+                      <p className="text-xs sm:text-sm text-[var(--ink-muted)] mt-1 max-w-xl">
+                        Upload 2–8 genuine DAW stems for masking diagnostics, verify v1→v2 revision deltas, and unlock consent-gated AI coaching.
+                      </p>
+                    </div>
+                  </div>
+                  <ArrowUpRight className="w-7 h-7 text-[var(--ink)] shrink-0 transition-transform duration-150 group-hover:translate-x-1 group-hover:-translate-y-1" />
+                </button>
+              </div>
+            </section>
+
+            {/* 4. BOTTOM GEOMETRIC FEATURE BAND */}
+            <section
+              aria-label="Privacy Gates and Engineering Standards"
+              className="grid grid-cols-1 lg:grid-cols-12 border-b-2 border-[var(--border-ink)]"
+            >
+              {/* Left: Solid #FFD600 Yellow Block with Rotating Geometric Asterisk */}
+              <div className="lg:col-span-4 bg-[#FFD600] text-[#0A0A0A] p-6 sm:p-8 lg:border-r-2 border-b-2 lg:border-b-0 border-[var(--border-ink)] flex flex-col justify-between gap-8">
+                <div className="flex items-start justify-between gap-4">
+                  <GeometricAsterisk />
+                  <span className="font-mono text-[10px] font-bold uppercase tracking-widest px-2 py-1 border-[1.5px] border-[#0A0A0A]">
+                    10 RULES
+                  </span>
                 </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">04. Granular Consent Dimensions:</strong> Local DSP, metrics-only AI JSON, direct audio inspection, raw transfer, and model training are separately gated.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">05. Zero Default Training:</strong> Default is strictly <span className="font-mono">model_training_opt_in: false</span>. Ephemeral processing never opts into training.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">06. Honest Device Simulation:</strong> Phone and Laptop translation modes are explicitly labeled as linear biquad filter approximations.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">07. Honest Streaming Estimates:</strong> Platform loudness normalization shifts are documented estimates based on published playback targets.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">08. Objective vs. Stylistic Split:</strong> Objective technical boundary alerts are cleanly separated from subjective genre-context notes.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">09. Lean Local-First Architecture:</strong> Ephemeral analysis workspaces purge uploaded audio immediately without auth walls or cloud retention.
-                </div>
-                <div>
-                  <strong className="text-[var(--text-primary)]">10. Verified Contract Boundaries:</strong> Deterministic unit suites (<span className="font-mono">node:test</span> + <span className="font-mono">pytest</span>) validate every DSP and privacy boundary.
+
+                <div className="space-y-3">
+                  <h2 className="font-display text-4xl sm:text-5xl leading-[0.88] uppercase text-[#0A0A0A]">
+                    BUILT FOR
+                    <br />
+                    REAL MIXES.
+                  </h2>
+                  <p className="text-xs sm:text-sm text-[#0A0A0A]/85 leading-relaxed font-medium">
+                    No AI stem fabrication. No hidden cloud retention. Mathematical DSP is the sole source of truth, and every AI permission starts OFF by default.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigateTo('architecture')}
+                    className="group inline-flex items-center gap-1.5 pt-2 font-mono text-xs font-bold uppercase tracking-wider text-[#0A0A0A] underline underline-offset-4 cursor-pointer"
+                  >
+                    <span>INSPECT SYSTEM ARCHITECTURE</span>
+                    <ArrowUpRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+                  </button>
                 </div>
               </div>
-            </motion.section>
+
+              {/* Middle Narrow Vertical Divider Cell */}
+              <div className="hidden lg:flex lg:col-span-1 border-r-2 border-[var(--border-ink)] bg-[var(--bg-surface)] items-center justify-center py-6">
+                <span className="writing-vertical font-mono text-xs font-bold uppercase tracking-widest text-[var(--ink)]">
+                  PRIVACY GATES →
+                </span>
+              </div>
+
+              {/* Right: Expandable 01 / 02 / 03 / 04 Consent Accordion */}
+              <div className="lg:col-span-7">
+                <ConsentGatePanel
+                  consent={consent}
+                  onChangeConsent={setConsent}
+                  variant="accordion"
+                />
+              </div>
+            </section>
           </div>
         )}
 
+        {/* ============================================================
+            ROUTE: /simple — BEGINNER QUICK CHECK
+        ============================================================ */}
         {route === 'simple' && (
-          <div className="space-y-8">
+          <div className="p-4 sm:p-6 lg:p-8 space-y-6">
             {reportError && (
-              <div className="border border-[var(--status-alert)]/30 bg-rose-50/80 dark:bg-rose-950/30 p-3.5 squircle-inner text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between gap-3">
+              <div className="border-2 border-[var(--border-ink)] bg-[#FF3B1F] text-white p-3.5 text-xs font-mono flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-[var(--status-alert)]" />
+                  <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{reportError}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setReportError(null)}
-                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-mono cursor-pointer"
+                  className="px-2 py-0.5 border border-white text-white hover:bg-white hover:text-[#FF3B1F] uppercase font-bold cursor-pointer"
                 >
-                  Dismiss
+                  DISMISS
                 </button>
               </div>
             )}
+
             <SimpleMixCheckView
               report={activeReport}
               reportSource={reportSource}
@@ -766,27 +976,32 @@ function MixLearnStudioShell() {
               errorMessage={reportError}
               onCancelAnalysis={handleCancelAnalysis}
             />
+
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
         )}
 
+        {/* ============================================================
+            ROUTE: /advanced — FULL MASTERING WORKBENCH
+        ============================================================ */}
         {route === 'advanced' && (
-          <div className="space-y-8">
+          <div className="p-4 sm:p-6 lg:p-8 space-y-6">
             {reportError && (
-              <div className="border border-[var(--status-alert)]/30 bg-rose-50/80 dark:bg-rose-950/30 p-3.5 squircle-inner text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between gap-3">
+              <div className="border-2 border-[var(--border-ink)] bg-[#FF3B1F] text-white p-3.5 text-xs font-mono flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-[var(--status-alert)]" />
+                  <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{reportError}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setReportError(null)}
-                  className="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] font-mono cursor-pointer"
+                  className="px-2 py-0.5 border border-white text-white hover:bg-white hover:text-[#FF3B1F] uppercase font-bold cursor-pointer"
                 >
-                  Dismiss
+                  DISMISS
                 </button>
               </div>
             )}
+
             <AdvancedMixCheckView
               report={activeReport}
               reportSource={reportSource}
@@ -827,30 +1042,43 @@ function MixLearnStudioShell() {
               dawContext={dawContext}
               onDawContextChange={setDawContext}
             />
+
             <ConsentGatePanel consent={consent} onChangeConsent={setConsent} compact />
           </div>
         )}
 
+        {/* ============================================================
+            ROUTE: /architecture — SYSTEM ARCHITECTURE & CONTRACTS
+        ============================================================ */}
         {route === 'architecture' && (
-          <ArchitectureHandoffView
-            report={
-              activeReport ||
-              generatePhase1DemoReport({
-                interface_mode: 'advanced',
-                genre: 'indie_rock',
-                mix_stage: 'unmastered_mix',
-                consent_state: createDefaultConsentState(),
-              })
-            }
-          />
+          <div className="p-4 sm:p-6 lg:p-8">
+            <ArchitectureHandoffView
+              report={
+                activeReport ||
+                generatePhase1DemoReport({
+                  interface_mode: 'advanced',
+                  genre: 'indie_rock',
+                  mix_stage: 'unmastered_mix',
+                  consent_state: createDefaultConsentState(),
+                })
+              }
+            />
+          </div>
         )}
       </main>
 
-      {/* Quiet Studio Footer */}
-      <footer className="studio-hairline-t px-4 sm:px-6 py-5 bg-[var(--bg-elevated)] text-xs text-[var(--text-secondary)]">
-        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-          <span>MixLearn Studio · Mathematical DSP &amp; Audio Engineering Workbench</span>
-          <span className="font-mono tabular-nums">Default Model Training Opt-In: False</span>
+      {/* SWISS ARCHITECTURAL FOOTER */}
+      <footer className="border-t-2 border-[var(--border-ink)] bg-[var(--bg-canvas)]">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4 font-mono text-[11px] uppercase tracking-wider text-[var(--ink-muted)]">
+          <div className="flex items-center gap-3">
+            <span className="font-display text-base tracking-tight text-[var(--ink)]">
+              MIXLEARN.
+            </span>
+            <span>MATHEMATICAL DSP &amp; AUDIO ENGINEERING WORKBENCH</span>
+          </div>
+          <span className="tabular-nums font-bold text-[var(--ink)]">
+            DEFAULT MODEL TRAINING OPT-IN: FALSE
+          </span>
         </div>
       </footer>
     </div>

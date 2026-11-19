@@ -61,36 +61,67 @@ export interface ReportFetchResult {
 }
 
 /**
- * Checks backend health via GET /api/v1/health (proxied via relative URL)
+ * Checks backend health via GET /api/v1/health (proxied via relative URL).
+ * Uses a 12,000 ms timeout and 1 automatic retry after 2,500 ms so Render cold starts
+ * stay on "Connecting to DSP..." instead of prematurely dropping to Local Web Audio.
  */
 export async function checkBackendHealth(
-  customFetch: typeof fetch = fetch
+  customFetch: typeof fetch = fetch,
+  options?: {
+    timeoutMs?: number;
+    retryDelayMs?: number;
+    maxRetries?: number;
+  }
 ): Promise<{ online: boolean; data?: BackendHealthResponse; errorMessage?: string }> {
-  try {
-    const url = buildApiUrl('/api/v1/health');
-    const res = await customFetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
-    });
+  const timeoutMs = options?.timeoutMs ?? 12000;
+  const retryDelayMs = options?.retryDelayMs ?? 2500;
+  const maxRetries = options?.maxRetries ?? 1;
+  const url = buildApiUrl('/api/v1/health');
 
-    if (!res.ok) {
-      return {
-        online: false,
-        errorMessage: `Backend returned HTTP ${res.status}: ${res.statusText}`,
-      };
+  let lastError = 'Network connection to backend failed';
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await customFetch(url, {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      });
+
+      if (res.ok) {
+        const data: BackendHealthResponse = await res.json();
+        const isOnline =
+          (data.status === 'ok' || data.status === 'online' || (data as any).state === 'ok') &&
+          data.phase >= 1;
+        if (isOnline) {
+          return { online: true, data };
+        }
+        lastError = `Backend health returned unexpected status: ${data.status}`;
+      } else {
+        lastError = `Backend returned HTTP ${res.status}: ${res.statusText}`;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        lastError = `Backend health check timed out after ${timeoutMs} ms`;
+      } else {
+        lastError = err?.message || 'Network connection to backend failed';
+      }
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    const data: BackendHealthResponse = await res.json();
-    return {
-      online: (data.status === 'ok' || data.status === 'online' || (data as any).state === 'ok') && data.phase >= 1,
-      data,
-    };
-  } catch (err: any) {
-    return {
-      online: false,
-      errorMessage: err.message || 'Network connection to backend failed',
-    };
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
   }
+
+  return {
+    online: false,
+    errorMessage: lastError,
+  };
 }
 
 /**

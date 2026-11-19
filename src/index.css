@@ -3,78 +3,179 @@
 
 @layer base {
   :root {
-    --font-display: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-sans: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, monospace;
+    --font-display: 'Anton', 'Barlow Condensed', Impact, sans-serif;
+    --font-ui: 'Space Grotesk', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 
-    /* Daylight Studio Design Tokens (Default Theme) */
-    --bg-canvas: #FAFAFA;
-    --bg-surface: #F5F5F7;
+    /* Swiss Neo-Brutalist Paper (Default Light Theme) */
+    --bg-canvas: #FFFFFF;
+    --bg-surface: #F7F7F5;
     --bg-elevated: #FFFFFF;
-    --border-hairline: 1px solid rgba(24, 34, 32, 0.08);
-    --border-hairline-color: rgba(24, 34, 32, 0.08);
-    --border-active: 1px solid rgba(58, 114, 105, 0.35);
-    --border-active-color: rgba(58, 114, 105, 0.35);
-    --text-primary: #182220;
-    --text-secondary: #52605D;
-    --accent-primary: #3A7269;
-    --accent-primary-hover: #2E5C54;
-    --accent-soft: #EBF3F1;
-    --status-safe: #15803D;
+    --ink: #0A0A0A;
+    --text-primary: #0A0A0A;
+    --text-secondary: #404040;
+    --border-ink: #0A0A0A;
+    --border-grid: 2px solid #0A0A0A;
+    --border-inner: 1.5px solid #0A0A0A;
+    --border-hairline: 1.5px solid #0A0A0A;
+    --border-hairline-color: #0A0A0A;
+    --border-active: 2px solid #0A0A0A;
+    --border-active-color: #0A0A0A;
+
+    /* Swiss Neo-Brutalist Accent Blocks */
+    --accent-yellow: #FFD600;
+    --accent-red: #FF3B1F;
+    --stage-dark: #0A0A0A;
+
+    /* Semantic Status & Interactive Tokens */
+    --accent-primary: #0A0A0A;
+    --accent-primary-hover: #262626;
+    --accent-soft: #F7F7F5;
+    --status-safe: #0F7A38;
     --status-caution: #B45309;
-    --status-alert: #BE123C;
+    --status-alert: #FF3B1F;
   }
 
   .dark {
-    --bg-canvas: #0D1211;
-    --bg-surface: #141B19;
-    --bg-elevated: #1A2321;
-    --border-hairline: 1px solid rgba(242, 245, 244, 0.09);
-    --border-hairline-color: rgba(242, 245, 244, 0.09);
-    --border-active: 1px solid rgba(77, 165, 151, 0.45);
-    --border-active-color: rgba(77, 165, 151, 0.45);
-    --text-primary: #F2F5F4;
-    --text-secondary: #9BA8A4;
-    --accent-primary: #2F7B6F;
-    --accent-primary-hover: #398E80;
-    --accent-soft: #172B28;
+    /* Inverted Swiss Neo-Brutalist Ink (Dark Mode) */
+    --bg-canvas: #0A0A0A;
+    --bg-surface: #141414;
+    --bg-elevated: #0A0A0A;
+    --ink: #FFFFFF;
+    --text-primary: #FFFFFF;
+    --text-secondary: #B8B8B4;
+    --border-ink: #FFFFFF;
+    --border-grid: 2px solid #FFFFFF;
+    --border-inner: 1.5px solid #FFFFFF;
+    --border-hairline: 1.5px solid #FFFFFF;
+    --border-hairline-color: #FFFFFF;
+    --border-active: 2px solid #FFD600;
+    --border-active-color: #FFD600;
+
+    --accent-yellow: #FFD600;
+    --accent-red: #FF3B1F;
+    --stage-dark: #0A0A0A;
+
+    --accent-primary: #FFD600;
+    --accent-primary-hover: #E5C100;
+    --accent-soft: #1B1B19;
     --status-safe: #4ADE80;
-    --status-caution: #FBBF24;
-    --status-alert: #FB7185;
+    --status-caution: #FFD600;
+    --status-alert: #FF3B1F;
   }
 
   html {
     background-color: var(--bg-canvas);
     color: var(--text-primary);
+    overflow-x: clip;
   }
 
   body {
     font-family: var(--font-sans);
     background-color: var(--bg-canvas);
     color: var(--text-primary);
-    line-height: 1.55;
+    line-height: 1.5;
+    overflow-x: clip;
   }
 
-  h1, h2, h3, .font-display {
-    font-family: var(--font-display);
-    letter-spacing: -0.02em;
+  button,
+  input,
+  select,
+  textarea {
+    border-radius: 0px;
   }
 
-  code, pre, .font-mono {
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--accent-red);
+    outline-offset: -2px;
+  }
+
+  code,
+  pre,
+  .font-mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
 }
 
-/* Squircle Geometry & Daylight Studio Surfaces */
-.squircle-outer {
-  border-radius: 20px;
-  corner-shape: squircle;
+/* Swiss Neo-Brutalist Typography */
+.font-display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
 }
 
+.font-ui {
+  font-family: var(--font-ui);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Strict 0px Geometry & Swiss Grid Rules */
+.brut-box {
+  border: var(--border-grid);
+  background-color: var(--bg-elevated);
+  border-radius: 0px;
+}
+
+.brut-surface {
+  border: var(--border-inner);
+  background-color: var(--bg-surface);
+  border-radius: 0px;
+}
+
+.brut-stage-dark {
+  background-color: var(--stage-dark);
+  color: #FFFFFF;
+  border: var(--border-grid);
+  border-radius: 0px;
+}
+
+.brut-border-b {
+  border-bottom: var(--border-grid);
+}
+
+.brut-border-t {
+  border-top: var(--border-grid);
+}
+
+.brut-border-r {
+  border-right: var(--border-grid);
+}
+
+.brut-border-l {
+  border-left: var(--border-grid);
+}
+
+.brut-inner-b {
+  border-bottom: var(--border-inner);
+}
+
+.brut-inner-t {
+  border-top: var(--border-inner);
+}
+
+.brut-inner-r {
+  border-right: var(--border-inner);
+}
+
+.writing-vertical {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* Legacy Class Compatibility Mapped Strictly to Swiss 0px Geometry */
+.squircle-outer,
 .squircle-inner {
-  border-radius: 12px;
-  corner-shape: squircle;
+  border-radius: 0px;
 }
 
 .studio-canvas {
@@ -84,12 +185,12 @@
 
 .studio-surface {
   background-color: var(--bg-surface);
-  border: var(--border-hairline);
+  border: var(--border-inner);
 }
 
 .studio-elevated {
   background-color: var(--bg-elevated);
-  border: var(--border-hairline);
+  border: var(--border-grid);
 }
 
 .studio-active-border {
@@ -97,18 +198,14 @@
 }
 
 .studio-hairline-b {
-  border-bottom: var(--border-hairline);
+  border-bottom: var(--border-inner);
 }
 
 .studio-hairline-t {
-  border-top: var(--border-hairline);
+  border-top: var(--border-inner);
 }
 
-.tabular-nums {
-  font-variant-numeric: tabular-nums;
-}
-
-/* 2.4s Equalizer DSP Progress Scanner Animations */
+/* Equalizer DSP Progress Scanner Animations */
 @keyframes eqPulse {
   0% {
     transform: scaleY(0.14);
@@ -132,32 +229,31 @@
 
 .animate-eq-pulse {
   transform-origin: bottom;
-  animation: eqPulse 1.2s cubic-bezier(0.22, 1, 0.36, 1) infinite alternate;
+  animation: eqPulse 1.05s cubic-bezier(0.16, 1, 0.3, 1) infinite alternate;
 }
 
 .animate-scanline {
-  animation: scanline 2.2s linear infinite;
+  animation: scanline 1.8s linear infinite;
 }
 
-/* Subtle Daylight Problem-Zone Focus Pulse & Flash */
 @keyframes zoneSoftPulse {
   0%, 100% {
-    opacity: 0.14;
+    opacity: 0.16;
   }
   50% {
-    opacity: 0.24;
+    opacity: 0.28;
   }
 }
 
 @keyframes zoneFocusFlash {
   0% {
-    opacity: 0.42;
+    opacity: 0.5;
   }
   45% {
-    opacity: 0.14;
+    opacity: 0.15;
   }
   100% {
-    opacity: 0.22;
+    opacity: 0.26;
   }
 }
 
@@ -171,15 +267,15 @@
 }
 
 .animate-retro-zone-pulse {
-  animation: zoneSoftPulse 2.2s ease-in-out infinite;
+  animation: zoneSoftPulse 2.0s ease-in-out infinite;
 }
 
 .animate-retro-zone-flash {
-  animation: zoneFocusFlash 0.7s cubic-bezier(0.22, 1, 0.36, 1) 2;
+  animation: zoneFocusFlash 0.65s cubic-bezier(0.16, 1, 0.3, 1) 2;
 }
 
 .animate-retro-marker-bounce {
-  animation: markerFloat 1.6s ease-in-out infinite;
+  animation: markerFloat 1.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

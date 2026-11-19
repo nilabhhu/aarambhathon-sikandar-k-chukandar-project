@@ -1,23 +1,26 @@
 /**
- * Global Motion Physics & Tactile Studio Constants for MixLearn Studio.
+ * Swiss Neo-Brutalist Mechanical Motion Physics for MixLearn Studio.
  * Paired with <MotionConfig reducedMotion="user"> at the application root.
  */
 
-export const STUDIO_SPRING = {
+export const BRUT_EASE = [0.16, 1, 0.3, 1] as const;
+
+export const BRUT_SPRING = {
   type: 'spring',
-  stiffness: 380,
-  damping: 30,
-  mass: 0.8,
+  stiffness: 420,
+  damping: 32,
 } as const;
 
 export const TACTILE_TAP = {
-  scale: 0.97,
-  transition: { duration: 0.08, ease: [0.22, 1, 0.36, 1] },
+  scale: 0.985,
+  transition: { duration: 0.06, ease: [0.16, 1, 0.3, 1] },
 } as const;
-
-export const STUDIO_EASE = [0.22, 1, 0.36, 1] as const;
 
 export const VIEWPORT_REVEAL = {
   once: true,
   amount: 'some',
 } as const;
+
+// Preserved aliases for downstream components
+export const STUDIO_EASE = BRUT_EASE;
+export const STUDIO_SPRING = BRUT_SPRING;
