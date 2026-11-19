@@ -123,7 +123,7 @@ def compute_kweighted_sliding_lufs_frames(
 
     win_m = min(n_samples, max(1, int(round(0.4 * sample_rate_hz))))
     win_s = min(n_samples, max(1, int(round(3.0 * sample_rate_hz))))
-    can_compute_short_term = include_short_term and duration_sec >= 3.0
+    can_compute_short_term = include_short_term and duration_sec >= 2.99
 
     frames: List[Tuple[float, Optional[float], Optional[float]]] = []
     m_vals: List[float] = []
@@ -179,9 +179,9 @@ def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
     if len(summary_splits) > 1:
         summary_section = summary_splits[-1]
 
-    # Integrated loudness: I: -14.2 LUFS or I: -inf LUFS
+    # Integrated loudness: I: -14.2 LUFS or I: +1.2 LUFS or I: -inf LUFS
     i_matches = list(
-        re.finditer(r"Integrated loudness:\s+I:\s+([-\d\.]+|-\s*inf)\s+LUFS", summary_section, re.IGNORECASE)
+        re.finditer(r"Integrated loudness:\s+I:\s+([+\-\d\.]+|-\s*inf)\s+LUFS", summary_section, re.IGNORECASE)
     )
     m_i = i_matches[-1] if i_matches else None
     if m_i:
@@ -202,7 +202,7 @@ def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
 
     # Loudness range: LRA: 6.4 LU
     lra_matches = list(
-        re.finditer(r"Loudness range:\s+LRA:\s+([-\d\.]+)\s+LU", summary_section, re.IGNORECASE)
+        re.finditer(r"Loudness range:\s+LRA:\s+([+\-\d\.]+)\s+LU", summary_section, re.IGNORECASE)
     )
     m_lra = lra_matches[-1] if lra_matches else None
     if m_lra:
@@ -213,9 +213,9 @@ def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
         except ValueError:
             pass
 
-    # True peak: Peak: -1.2 dBFS or dBTP
+    # True peak: Peak: -1.2 dBFS or +0.3 dBFS or dBTP
     tp_matches = list(
-        re.finditer(r"True peak:\s+Peak:\s+([-\d\.]+|-\s*inf)\s+(?:dBFS|dBTP)", summary_section, re.IGNORECASE)
+        re.finditer(r"True peak:\s+Peak:\s+([+\-\d\.]+|-\s*inf)\s+(?:dBFS|dBTP)", summary_section, re.IGNORECASE)
     )
     m_tp = tp_matches[-1] if tp_matches else None
     if m_tp:
@@ -236,7 +236,7 @@ def parse_ebur128_stderr(stderr_text: str) -> Dict[str, Any]:
     # Framelog parsing:
     # Example line: [Parsed_ebur128_0 @ 000...] t: 0.100000       M: -18.2 S: -22.1 ...
     frame_matches = re.finditer(
-        r"t:\s+([\d\.]+)\s+(?:TARGET:[^\s]+\s+)?M:\s+([-\d\.]+|-\s*inf)\s+S:\s+([-\d\.]+|-\s*inf)",
+        r"t:\s+([\d\.]+)\s+(?:TARGET:[^\s]+\s+)?M:\s+([+\-\d\.]+|-\s*inf)\s+S:\s+([+\-\d\.]+|-\s*inf)",
         stderr_text,
     )
     m_vals: List[float] = []
@@ -334,7 +334,7 @@ def measure_loudness_ebur128(
         unavailable_reasons["momentary_max_loudness"] = "file_duration_too_short_for_ebur128"
         parsed["momentary_max_lufs"] = None
 
-    if duration_seconds < 3.0:
+    if duration_seconds < 2.99:
         unavailable_reasons["short_term_max_loudness"] = "file_duration_too_short_for_ebur128"
         unavailable_reasons["loudness_range_lra"] = "file_duration_too_short_for_ebur128"
         parsed["lra_lu"] = None
@@ -356,13 +356,21 @@ def measure_loudness_ebur128(
     # Also compute real ITU-R BS.1770-4 K-weighted sliding-window Short-Term/Momentary frames
     # whenever frames are missing or lack finite short-term coverage (e.g., 3s–6s clips or fallback mode).
     existing_frames = parsed.get("frames") or []
-    finite_st_frames = sum(1 for f in existing_frames if len(f) >= 3 and f[2] is not None)
+    finite_st_frames = sum(1 for f in existing_frames if len(f) >= 3 and f[2] is not None and f[2] > -69.5)
+    st_max_val = parsed.get("short_term_max_lufs")
     needs_sliding_frames = (
         not parsed.get("is_silent")
         and duration_seconds >= 0.4
         and (
             len(existing_frames) < 2
-            or (duration_seconds >= 3.0 and (parsed.get("short_term_max_lufs") is None or finite_st_frames < max(2, len(existing_frames) // 2)))
+            or (
+                duration_seconds >= 2.99
+                and (
+                    st_max_val is None
+                    or st_max_val <= -69.5
+                    or finite_st_frames < max(2, len(existing_frames) // 2)
+                )
+            )
             or parsed.get("momentary_max_lufs") is None
         )
     )
@@ -391,13 +399,17 @@ def measure_loudness_ebur128(
                 sliding_frames, calc_m_max, calc_s_max = compute_kweighted_sliding_lufs_frames(
                     data,
                     sr,
-                    include_short_term=(duration_seconds >= 3.0),
+                    include_short_term=(duration_seconds >= 2.99),
                 )
                 if sliding_frames:
                     parsed["frames"] = sliding_frames
                 if parsed.get("momentary_max_lufs") is None and calc_m_max is not None:
                     parsed["momentary_max_lufs"] = calc_m_max
-                if duration_seconds >= 3.0 and parsed.get("short_term_max_lufs") is None and calc_s_max is not None:
+                if (
+                    duration_seconds >= 2.99
+                    and (parsed.get("short_term_max_lufs") is None or parsed["short_term_max_lufs"] <= -69.5)
+                    and calc_s_max is not None
+                ):
                     parsed["short_term_max_lufs"] = calc_s_max
         except Exception as exc:
             logger.warning(

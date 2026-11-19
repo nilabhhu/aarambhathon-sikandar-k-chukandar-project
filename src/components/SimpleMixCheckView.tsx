@@ -422,27 +422,19 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               {(['unmastered_mix', 'final_master'] as MixStage[]).map((stage) => {
                 const active = mixStage === stage;
                 return (
-                  <motion.button
+                  <button
                     key={stage}
                     type="button"
-                    whileTap={TACTILE_TAP}
                     onClick={() => onChangeMixStage(stage)}
                     aria-pressed={active}
-                    className={`relative px-2 py-2.5 text-[11px] font-ui font-bold uppercase tracking-wider text-center whitespace-nowrap transition-colors cursor-pointer ${
+                    className={`px-2 py-2.5 text-[11px] font-ui font-bold uppercase tracking-wider text-center whitespace-nowrap cursor-pointer ${
                       active
-                        ? 'text-[var(--bg-canvas)]'
-                        : 'text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
+                        ? 'bg-[var(--ink)] text-[var(--bg-canvas)]'
+                        : 'bg-transparent text-[var(--ink)] hover:bg-[var(--bg-canvas)]'
                     }`}
                   >
-                    {active && (
-                      <motion.span
-                        layoutId="simple-stage-pill"
-                        transition={BRUT_SPRING}
-                        className="absolute inset-0 bg-[var(--ink)]"
-                      />
-                    )}
-                    <span className="relative z-10">{MIX_STAGE_LABELS[stage].title}</span>
-                  </motion.button>
+                    {MIX_STAGE_LABELS[stage].title}
+                  </button>
                 );
               })}
             </div>

@@ -321,6 +321,28 @@ def analyze_audio_workspace(
     now_iso = datetime.now(timezone.utc).isoformat()
     report_id = f"dsp-{uuid.uuid4()}"
 
+    raw_consent = consent_state if isinstance(consent_state, dict) else {}
+    normalized_consent = {
+        "audio_analysis_consent": bool(raw_consent.get("audio_analysis_consent", True)),
+        "external_ai_transfer_consent": bool(raw_consent.get("external_ai_transfer_consent", False)),
+        "ai_numerical_metrics_transfer_consent": bool(
+            raw_consent.get(
+                "ai_numerical_metrics_transfer_consent",
+                raw_consent.get("external_ai_transfer_consent", False),
+            )
+        ),
+        "ai_audio_content_inspection_consent": bool(
+            raw_consent.get("ai_audio_content_inspection_consent", False)
+        ),
+        "raw_audio_transfer_consent": bool(raw_consent.get("raw_audio_transfer_consent", False)),
+        "model_training_opt_in": bool(raw_consent.get("model_training_opt_in", False)),
+        "consent_timestamp": (
+            str(raw_consent["consent_timestamp"])
+            if raw_consent.get("consent_timestamp")
+            else now_iso
+        ),
+    }
+
     report = {
         "schema_version": "2.0.0",
         "report_id": report_id,
@@ -334,7 +356,7 @@ def analyze_audio_workspace(
             "user_notes": user_notes,
             "plugin_chain_metadata": plugin_chain_metadata,
         },
-        "consent_state": consent_state,
+        "consent_state": normalized_consent,
         "file_metadata": {
             "filename": safe_display_name,
             "file_name": safe_display_name,

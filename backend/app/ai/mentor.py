@@ -17,9 +17,11 @@ Security & Privacy Guardrails:
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Literal, Optional, Sequence, Set
 
 from pydantic import BaseModel, Field
@@ -27,7 +29,11 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger("mixlearn.ai.mentor")
 
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
+GEMINI_FALLBACK_MODEL_NAME = "gemini-2.0-flash"
 GEMINI_TIMEOUT_SECONDS = 18.0
+_LAST_GEMINI_MODEL_USED: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_LAST_GEMINI_MODEL_USED", default=GEMINI_MODEL_NAME
+)
 
 ALLOWED_ARTIST_VISIONS: tuple[str, ...] = (
     "Punchy",
@@ -606,40 +612,102 @@ def _enforce_evidence_and_rule3(
     return validated_steps[:6], parsed.vision_alignment_note
 
 
+def _format_safe_gemini_error(exc: Exception, api_key: str = "") -> str:
+    """
+    Extracts ClientError HTTP status code and message safely for diagnostics
+    while guaranteeing the GEMINI_API_KEY (or any AIza* token) is NEVER logged.
+    """
+    status_code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    status_label = getattr(exc, "status", None)
+    raw_msg = str(getattr(exc, "message", None) or exc or "").strip()
+
+    if api_key:
+        raw_msg = raw_msg.replace(api_key, "[REDACTED_KEY]")
+    raw_msg = re.sub(r"AIza[0-9A-Za-z_\-]{10,}", "[REDACTED_KEY]", raw_msg)
+    raw_msg = re.sub(r"(?i)(api[_-]?key\s*[=:]\s*)[^\s&\"']+", r"\1[REDACTED_KEY]", raw_msg)
+    if len(raw_msg) > 260:
+        raw_msg = raw_msg[:260] + "..."
+
+    parts = [type(exc).__name__]
+    if status_code is not None:
+        parts.append(f"status={status_code}")
+    if status_label:
+        parts.append(f"code={status_label}")
+    if raw_msg:
+        parts.append(f"message={raw_msg}")
+    return " | ".join(parts)
+
+
+def _is_model_not_found_error(exc: Exception) -> bool:
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    status_text = str(getattr(exc, "status", "") or "").upper()
+    msg_text = str(exc or "").lower()
+    if code == 404 or status_text == "NOT_FOUND":
+        return True
+    return (
+        "not found" in msg_text
+        or "404" in msg_text
+        or "is not supported for generatecontent" in msg_text
+        or "model not found" in msg_text
+    )
+
+
 def _call_gemini_structured(
     api_key: str,
     sanitized_payload: Dict[str, Any],
 ) -> GeminiStructuredMentorOutput:
     """
-    Executes a single server-side Gemini API call using the official `google-genai` SDK
+    Executes a server-side Gemini API call using the official `google-genai` SDK
     with strict Pydantic structured JSON output.
+    Targets `gemini-2.5-flash` first and cleanly falls back to `gemini-2.0-flash`
+    if a model-not-found ClientError occurs.
     """
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=api_key)
+    clean_key = (api_key or "").strip()
+    client = genai.Client(api_key=clean_key)
     prompt_body = (
         "Generate evidence-bound mixing & mastering coaching for the following sanitized "
         "mathematical DSP telemetry JSON. Cite ONLY exact evidence_id values from dsp_findings.\n\n"
         f"{json.dumps(sanitized_payload, indent=2)}"
     )
 
-    response = client.models.generate_content(
-        model=GEMINI_MODEL_NAME,
-        contents=prompt_body,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            response_mime_type="application/json",
-            response_schema=GeminiStructuredMentorOutput,
-            temperature=0.2,
-        ),
-    )
+    candidate_models = [GEMINI_MODEL_NAME, GEMINI_FALLBACK_MODEL_NAME]
+    last_exc: Optional[Exception] = None
 
-    raw_text = (getattr(response, "text", None) or "").strip()
-    if not raw_text:
-        raise ValueError("Gemini returned an empty response body.")
+    for idx, model_id in enumerate(candidate_models):
+        try:
+            response = client.models.generate_content(
+                model=model_id,
+                contents=prompt_body,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    response_mime_type="application/json",
+                    response_schema=GeminiStructuredMentorOutput,
+                    temperature=0.2,
+                ),
+            )
+            raw_text = (getattr(response, "text", None) or "").strip()
+            if not raw_text:
+                raise ValueError("Gemini returned an empty response body.")
+            _LAST_GEMINI_MODEL_USED.set(model_id)
+            return GeminiStructuredMentorOutput.model_validate_json(raw_text)
+        except Exception as exc:
+            last_exc = exc
+            is_last = idx == len(candidate_models) - 1
+            if not is_last and _is_model_not_found_error(exc):
+                logger.warning(
+                    "Gemini primary model '%s' returned model-not-found (%s); retrying with fallback model '%s'.",
+                    model_id,
+                    _format_safe_gemini_error(exc, clean_key),
+                    candidate_models[idx + 1],
+                )
+                continue
+            raise
 
-    return GeminiStructuredMentorOutput.model_validate_json(raw_text)
+    assert last_exc is not None
+    raise last_exc
 
 
 def generate_ai_mentor_interpretation(
@@ -697,12 +765,14 @@ def generate_ai_mentor_interpretation(
             fallback_reason="GEMINI_API_KEY is not configured on this server; running Deterministic Offline Mentor.",
         )
 
+    _LAST_GEMINI_MODEL_USED.set(GEMINI_MODEL_NAME)
     try:
         gemini_parsed = _call_gemini_structured(api_key=api_key, sanitized_payload=sanitized_payload)
+        used_model = _LAST_GEMINI_MODEL_USED.get()
         validated_steps, vision_note = _enforce_evidence_and_rule3(gemini_parsed, sanitized_payload)
         return AiMentorResponse(
             mentor_mode="gemini_live",
-            model_name=GEMINI_MODEL_NAME,
+            model_name=used_model,
             fallback_reason=None,
             artist_vision=normalized_vision,
             objective_warnings_preserved=True,
@@ -712,7 +782,11 @@ def generate_ai_mentor_interpretation(
             privacy_audit=privacy_audit,
         )
     except Exception as exc:
-        logger.warning("Gemini AI Mentor call failed (%s); falling back deterministically.", type(exc).__name__)
+        safe_err = _format_safe_gemini_error(exc, api_key)
+        logger.warning(
+            "Gemini AI Mentor call failed (%s); falling back to Deterministic Offline Mentor.",
+            safe_err,
+        )
         return build_deterministic_mentor_response(
             sanitized_payload=sanitized_payload,
             privacy_audit=privacy_audit,

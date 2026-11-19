@@ -467,30 +467,22 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
                     type="button"
                     data-testid={`issue-marker-pin-${idx}`}
                     onClick={() => handleMarkerClick(mk)}
-                    whileHover={{ scale: 1.15, y: -2 }}
+                    whileHover={{ y: -1 }}
                     whileTap={TACTILE_TAP}
                     transition={STUDIO_SPRING}
                     style={{ left: `${leftPct}%`, x: '-50%' }}
                     title={`${mk.issueTitle} (${formatTimecode(mk.startSec)} – ${formatTimecode(mk.endSec)})`}
                     aria-label={`Jump to ${mk.issueTitle} at ${formatTimecode(mk.startSec)}`}
-                    className={`absolute top-0 inline-flex items-center gap-1 px-2 py-0.5 squircle-inner text-[10px] font-mono tabular-nums font-semibold border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-primary)] ${
+                    className={`absolute top-0.5 inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono tabular-nums font-bold border cursor-pointer transition-colors ${
                       isSelected
                         ? isTech
-                          ? 'bg-[var(--status-alert)] text-white border-[var(--status-alert)] z-30'
-                          : 'bg-[var(--status-caution)] text-white border-[var(--status-caution)] z-30'
+                          ? 'bg-[#FF3B1F] text-white border-[#0A0A0A] dark:border-white outline-2 outline-offset-1 outline-[#FFD600] z-30'
+                          : 'bg-[#FFD600] text-[#0A0A0A] border-[#0A0A0A] outline-2 outline-offset-1 outline-[#0A0A0A] dark:outline-white z-30'
                         : isTech
-                        ? 'bg-rose-50 dark:bg-rose-950/75 text-[var(--status-alert)] border-[var(--status-alert)]/35 z-20 hover:z-30'
-                        : 'bg-amber-50 dark:bg-amber-950/75 text-[var(--status-caution)] border-[var(--status-caution)]/35 z-10 hover:z-30'
+                        ? 'bg-[var(--bg-canvas)] text-[#FF3B1F] border-[#FF3B1F] z-20 hover:bg-[#FF3B1F] hover:text-white hover:z-30'
+                        : 'bg-[var(--bg-canvas)] text-[var(--ink)] border-[var(--border-ink)] z-10 hover:bg-[#FFD600] hover:text-[#0A0A0A] hover:z-30'
                     }`}
                   >
-                    {isSelected && (
-                      <motion.span
-                        layoutId="active-marker-pin-ring"
-                        transition={STUDIO_SPRING}
-                        aria-hidden="true"
-                        className="absolute -inset-[3px] squircle-inner border border-[var(--accent-primary)]/60 pointer-events-none"
-                      />
-                    )}
                     <MapPin className="w-2.5 h-2.5 shrink-0" />
                     <span>{formatTimecode(mk.startSec)}</span>
                   </motion.button>

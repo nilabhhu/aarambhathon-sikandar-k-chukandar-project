@@ -428,7 +428,16 @@ async def post_analyze_demo(request: Request):
     report["input_context"]["interface_mode"] = req_obj.interface_mode
     report["input_context"]["genre"] = req_obj.genre
     report["input_context"]["mix_stage"] = req_obj.mix_stage
-    report["consent_state"] = req_obj.consent_state.model_dump()
+    consent_dump = req_obj.consent_state.model_dump()
+    if not consent_dump.get("consent_timestamp"):
+        consent_dump["consent_timestamp"] = datetime.now(timezone.utc).isoformat()
+    consent_dump["ai_audio_content_inspection_consent"] = bool(
+        consent_dump.get("ai_audio_content_inspection_consent", False)
+    )
+    consent_dump["raw_audio_transfer_consent"] = bool(
+        consent_dump.get("raw_audio_transfer_consent", False)
+    )
+    report["consent_state"] = consent_dump
     report["created_at"] = datetime.now(timezone.utc).isoformat()
     report["report_id"] = f"demo-p1-{req_obj.genre}-{req_obj.mix_stage}"
     report["is_demonstration_data"] = True
@@ -599,6 +608,8 @@ async def post_analyze_dsp(
                     "message": "Permission 1 (audio_analysis_consent) is required before examining or measuring audio with mathematical DSP.",
                 },
             )
+        if not consent_obj.consent_timestamp:
+            consent_obj.consent_timestamp = datetime.now(timezone.utc).isoformat()
     else:
         consent_obj = ConsentState(
             audio_analysis_consent=True,
@@ -696,6 +707,8 @@ def _parse_consent_from_string(raw_consent: Optional[str]) -> ConsentState:
                     "message": "Permission 1 (audio_analysis_consent) is required before examining or measuring audio with mathematical DSP.",
                 },
             )
+        if not consent_obj.consent_timestamp:
+            consent_obj.consent_timestamp = datetime.now(timezone.utc).isoformat()
         return consent_obj
 
     return ConsentState(
@@ -1193,6 +1206,9 @@ async def post_interpret_ai(request: Request):
                 training_opt_in=allow_model_training,
                 retention_policy=(
                     "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
+                    "User explicitly enabled model_training_opt_in=true (Toggle C); zero server audio retention."
+                    if allow_model_training
+                    else "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
                     "Zero server retention and zero model training on user audio or metrics."
                 ),
             ),

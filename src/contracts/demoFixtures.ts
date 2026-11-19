@@ -50,6 +50,27 @@ export function generatePhase1DemoReport(params: {
     label,
   });
 
+  const fmtTc = (sec: number): string => {
+    const clamped = Math.max(0, Math.min(durationSec, sec));
+    const mins = Math.floor(clamped / 60);
+    const rem = clamped - mins * 60;
+    const whole = Math.floor(rem);
+    const tenths = Math.floor((rem - whole) * 10 + 1e-6);
+    const mm = String(mins).padStart(2, '0');
+    const ss = String(whole).padStart(2, '0');
+    return durationSec <= 15 ? `${mm}:${ss}.${tenths}` : `${mm}:${ss}`;
+  };
+  const fmtRange = (c: { start_sec: number; end_sec: number }): string =>
+    `${fmtTc(c.start_sec)}–${fmtTc(c.end_sec)}`;
+
+  const cueTp1 = cue(42.5, 58.0, 'Chorus 1 Drum & Vocal Transient Peak');
+  const cueTp2 = cue(134.0, 152.5, 'Chorus 2 Full Mix Climax');
+  const cuePhase = cue(108.0, 124.5, 'Bridge Wide Synth Pad & Chorus Bass');
+  const cueVerse = cue(18.0, 42.0, 'Verse 1 Layered Rhythm Guitars & Keys');
+  const cuePresence = cue(44.0, 61.5, 'Chorus 1 Cymbals & Lead Vocal Bite');
+  const cueMacro = cue(42.5, 95.0, 'Chorus 1 into Verse 2 Transition');
+  const cuePreChorus = cue(34.0, 50.0, 'Pre-Chorus into Chorus 1');
+
   return {
     schema_version: '2.0.0',
     report_id: `demo-p1-${params.genre}-${params.mix_stage}`,
@@ -304,10 +325,7 @@ export function generatePhase1DemoReport(params: {
         title: isUnmastered
           ? 'Insufficient Pre-Master True-Peak Headroom (-0.4 dBTP)'
           : 'Inter-Sample True-Peak Clipping Detected (+0.6 dBTP)',
-        timestamps: [
-          cue(42.5, 58.0, 'Chorus 1 Drum & Vocal Transient Peak'),
-          cue(134.0, 152.5, 'Chorus 2 Full Mix Climax'),
-        ],
+        timestamps: [cueTp1, cueTp2],
         evidence: [
           {
             metric_key: 'true_peak_max',
@@ -327,14 +345,14 @@ export function generatePhase1DemoReport(params: {
         learning_guide: {
           what_was_detected: isUnmastered
             ? 'Your unmastered mix peaks at -0.4 dBTP with a limiter active on the master bus, leaving almost no headroom for mastering.'
-            : 'Your master exceeds 0.0 dBTP (+0.6 dBTP) during both chorus sections, causing inter-sample distortion when converted to AAC/OGG.',
+            : 'Your master exceeds 0.0 dBTP (+0.6 dBTP) during both peak sections, causing inter-sample distortion when converted to AAC/OGG.',
           why_it_matters:
             'Lossy encoders (Spotify OGG, Apple Music AAC, YouTube Opus) reconstruct continuous waveforms that clip audibly when True Peak exceeds -1.0 dBTP.',
           what_to_try: isUnmastered
             ? 'Bypass the brickwall limiter on your mix bus and lower the mix bus input trim by 3.5 dB so peaks sit safely between -6.0 and -3.0 dBTP.'
             : 'Enable True-Peak (ISP) oversampling on your final limiter and set the output ceiling to -1.0 dBTP.',
           how_to_verify:
-            'Export a 24-bit WAV bounce of Chorus 1 (00:42–00:58), re-upload it, and confirm True Peak reads at or below your target ceiling with zero audible crunch on snare hits.',
+            `Export a 24-bit WAV bounce of the peak section (${fmtRange(cueTp1)}), re-upload it, and confirm True Peak reads at or below your target ceiling with zero audible crunch on snare hits.`,
         },
       },
       {
@@ -344,9 +362,7 @@ export function generatePhase1DemoReport(params: {
         severity: 'warning',
         confidence: 0.91,
         title: 'Momentary Stereo Phase Cancellation in Bridge (-0.18 correlation)',
-        timestamps: [
-          cue(108.0, 124.5, 'Bridge Wide Synth Pad & Chorus Bass'),
-        ],
+        timestamps: [cuePhase],
         evidence: [
           {
             metric_key: 'phase_correlation_min',
@@ -358,13 +374,13 @@ export function generatePhase1DemoReport(params: {
         ],
         learning_guide: {
           what_was_detected:
-            'Between 01:48 and 02:04, the left and right channels pull out of phase (-0.18 correlation) when the widened synth pad and stereo bass chorus enter together.',
+            `Between ${fmtTc(cuePhase.start_sec)} and ${fmtTc(cuePhase.end_sec)}, the left and right channels pull out of phase (-0.18 correlation) when the widened synth pad and stereo bass chorus enter together.`,
           why_it_matters:
             'When played back on mono speakers (smart speakers, phone speakers, club PA systems), out-of-phase stereo signals partially cancel out, causing the synth and bass body to hollow out.',
           what_to_try:
             'Use a Mid/Side EQ or stereo imaging plugin to keep frequencies below 140 Hz in mono, and reduce the stereo widener depth on the bridge pad by 20–30%.',
           how_to_verify:
-            'Toggle Mono Listening while looping 01:48–02:04. Verify that the bass and pad maintain steady volume and warmth when summed to mono.',
+            `Toggle Mono Listening while looping ${fmtRange(cuePhase)}. Verify that the bass and pad maintain steady volume and warmth when summed to mono.`,
         },
       },
       {
@@ -374,9 +390,7 @@ export function generatePhase1DemoReport(params: {
         severity: 'notice',
         confidence: 0.78,
         title: 'Warm Low-Mid Density in 200–500 Hz Band (-11.2 dBFS)',
-        timestamps: [
-          cue(18.0, 42.0, 'Verse 1 Layered Rhythm Guitars & Keys'),
-        ],
+        timestamps: [cueVerse],
         evidence: [
           {
             metric_key: 'mud_band_energy_200_500hz',
@@ -394,7 +408,7 @@ export function generatePhase1DemoReport(params: {
           what_to_try:
             'Try a -2.5 dB bell cut around 320Hz (Q=1.8) on the rhythm guitars and keys bus to unmask the vocal.',
           how_to_verify:
-            'Level-match before and after in the Verse (00:18–00:42) and listen for whether lead vocal consonants feel clearer while the guitars still sound full.',
+            `Level-match before and after in the Verse (${fmtRange(cueVerse)}) and listen for whether lead vocal consonants feel clearer while the guitars still sound full.`,
         },
       },
       {
@@ -404,9 +418,7 @@ export function generatePhase1DemoReport(params: {
         severity: 'warning',
         confidence: 0.86,
         title: 'Harsh Upper-Mid Peak Near 4.0 kHz (-12.1 dBFS)',
-        timestamps: [
-          cue(44.0, 61.5, 'Chorus 1 Cymbals & Lead Vocal Bite'),
-        ],
+        timestamps: [cuePresence],
         evidence: [
           {
             metric_key: 'presence_band_energy_2k_5khz',
@@ -424,7 +436,7 @@ export function generatePhase1DemoReport(params: {
           what_to_try:
             'Apply a -2.0 dB dynamic bell cut around 4.0kHz (Q=2.4) on cymbals or the vocal bus.',
           how_to_verify:
-            'Audition Chorus 1 in Smartphone translation mode and confirm vocal transients sound crisp without ear fatigue.',
+            `Audition ${fmtRange(cuePresence)} in Smartphone translation mode and confirm vocal transients sound crisp without ear fatigue.`,
         },
       },
       {
@@ -434,9 +446,7 @@ export function generatePhase1DemoReport(params: {
         severity: 'notice',
         confidence: 0.82,
         title: 'Compact Loudness Range Across Arrangement (4.2 LU)',
-        timestamps: [
-          cue(42.5, 95.0, 'Chorus 1 into Verse 2 Transition'),
-        ],
+        timestamps: [cueMacro],
         evidence: [
           {
             metric_key: 'loudness_range_lra',
@@ -452,9 +462,9 @@ export function generatePhase1DemoReport(params: {
           why_it_matters:
             'Consistent loudness keeps energy steady in noisy environments, though a wider 6–8 LU contrast can make the chorus impact feel larger by comparison.',
           what_to_try:
-            'If you want the chorus entrance at 00:42.5 to hit harder, try automating the verse drum room and rhythm bus down by 1.0 to 1.5 dB during the final four bars of the pre-chorus.',
+            `If you want the chorus entrance at ${fmtTc(cueMacro.start_sec)} to hit harder, try automating the verse drum room and rhythm bus down by 1.0 to 1.5 dB during the transition.`,
           how_to_verify:
-            'Play from 00:34 to 00:50 with your eyes closed and check whether the downbeat of Chorus 1 feels noticeably wider and taller.',
+            `Play from ${fmtTc(cuePreChorus.start_sec)} to ${fmtTc(cuePreChorus.end_sec)} with your eyes closed and check whether the downbeat feels noticeably wider and taller.`,
         },
       },
     ],
@@ -474,7 +484,7 @@ export function generatePhase1DemoReport(params: {
           ? 'Bypass Slot 3 (Brickwall True-Peak Limiter) on the stereo bus and apply -3.5 dB input trim ahead of the VCA Mix Bus Compressor so ITU-R BS.1770-4 True Peak stays <= -3.0 dBTP.'
           : 'Enable 4x ISP oversampling in Slot 3 and reduce Ceiling from -0.2 dBTP to -1.0 dBTP to prevent post-codec reconstruction overshoots.',
         verification_check:
-          'Re-upload Chorus 1 bounce and confirm True Peak Max <= -3.0 dBTP (Unmastered) or <= -1.0 dBTP (Master) with 0 sample clipping events.',
+          `Re-upload the revised bounce (${fmtRange(cueTp1)}) and confirm True Peak Max <= -3.0 dBTP (Unmastered) or <= -1.0 dBTP (Master) with 0 sample clipping events.`,
       },
       {
         recommendation_id: 'rec-2-low-mid-carve',
@@ -487,7 +497,7 @@ export function generatePhase1DemoReport(params: {
         advanced_dsp_guidance:
           'Insert a dynamic bell EQ (-2.5 dB attenuation, Q=1.8 at 320 Hz) on the instrument bus to reduce 250–480 Hz buildup.',
         verification_check:
-          'Compare Verse 1 vocal intelligibility at matched LUFS loudness to confirm vocal presence improved without thinning the rhythm section.',
+          `Compare ${fmtRange(cueVerse)} vocal intelligibility at matched LUFS loudness to confirm vocal presence improved without thinning the rhythm section.`,
       },
       {
         recommendation_id: 'rec-3-harsh-peak',
@@ -498,9 +508,9 @@ export function generatePhase1DemoReport(params: {
         beginner_summary:
           'Apply a -2.0 dB dynamic bell cut around 4.0kHz on cymbals or vocals to remove ear fatigue.',
         advanced_dsp_guidance:
-          'Use a dynamic EQ or de-esser centered at 4.0 kHz (-2.0 dB max cut, Q=2.4) during Chorus 1 cymbal and vocal peaks.',
+          'Use a dynamic EQ or de-esser centered at 4.0 kHz (-2.0 dB max cut, Q=2.4) during cymbal and vocal peaks.',
         verification_check:
-          'Check Chorus 1 (00:44–01:01) on Smartphone preview to verify brittle upper-mid bite is controlled.',
+          `Check ${fmtRange(cuePresence)} on Smartphone preview to verify brittle upper-mid bite is controlled.`,
       },
       {
         recommendation_id: 'rec-4-bridge-phase',
@@ -511,9 +521,9 @@ export function generatePhase1DemoReport(params: {
         beginner_summary:
           'Keep your bass frequencies centered and slightly reduce the stereo widening effect on the bridge synth pad.',
         advanced_dsp_guidance:
-          'Apply a 12 dB/oct Side-channel high-pass filter at 140 Hz on the synth/bass group during 01:48–02:04 so 100ms windowed correlation remains >= +0.15.',
+          `Apply a 12 dB/oct Side-channel high-pass filter at 140 Hz on the synth/bass group during ${fmtRange(cuePhase)} so 100ms windowed correlation remains >= +0.15.`,
         verification_check:
-          'Check 01:48–02:04 in Mono Listening mode and verify no low-end drop occurs when toggling Stereo/Mono.',
+          `Check ${fmtRange(cuePhase)} in Mono Listening mode and verify no low-end drop occurs when toggling Stereo/Mono.`,
       },
     ],
     extensions: {
