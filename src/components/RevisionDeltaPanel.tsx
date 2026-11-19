@@ -405,9 +405,9 @@ export const RevisionDeltaPanel: React.FC<RevisionDeltaPanelProps> = ({
                       {d !== null && d < -0.3 && <ArrowDownRight className="w-3.5 h-3.5" />}
                       <span>{fmtSigned(d, 'dB', 1)}</span>
                     </div>
-                    <div className="mt-1.5 h-1.5 rounded-full bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)] overflow-hidden">
+                    <div className="mt-1.5 h-1.5 bg-[var(--bg-elevated)] border border-[var(--border-hairline-color)] overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${
+                        className={`h-full ${
                           d !== null && d > 0 ? 'bg-[var(--status-caution)]' : 'bg-[var(--accent-primary)]'
                         }`}
                         style={{ width: `${clampedPct}%` }}

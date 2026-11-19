@@ -319,15 +319,15 @@ export const StemOverlapMatrix: React.FC<StemOverlapMatrixProps> = ({
                 </h3>
                 <div className="flex items-center gap-3 text-[11px] font-mono">
                   <span className="inline-flex items-center gap-1.5 text-[var(--text-secondary)]">
-                    <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]" />
+                    <span className="w-2.5 h-2.5 bg-[var(--bg-surface)] border border-[var(--border-hairline-color)]" />
                     Low
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-[var(--status-caution)]">
-                    <span className="w-2.5 h-2.5 rounded-[3px] bg-amber-100 dark:bg-amber-900/50 border border-[var(--status-caution)]/45" />
+                    <span className="w-2.5 h-2.5 bg-amber-100 dark:bg-amber-900/50 border border-[var(--status-caution)]/45" />
                     Moderate
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-[var(--status-alert)]">
-                    <span className="w-2.5 h-2.5 rounded-[3px] bg-rose-100 dark:bg-rose-900/50 border border-[var(--status-alert)]/45" />
+                    <span className="w-2.5 h-2.5 bg-rose-100 dark:bg-rose-900/50 border border-[var(--status-alert)]/45" />
                     High Potential Masking
                   </span>
                 </div>
@@ -399,7 +399,7 @@ export const StemOverlapMatrix: React.FC<StemOverlapMatrixProps> = ({
                     {stemReport.overlap_matrix.highlights.slice(0, 5).map((h, idx) => (
                       <li key={idx} className="flex items-start gap-2">
                         <span
-                          className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                          className={`mt-1.5 w-2 h-2 shrink-0 ${
                             h.severity === 'high'
                               ? 'bg-[var(--status-alert)]'
                               : 'bg-[var(--status-caution)]'

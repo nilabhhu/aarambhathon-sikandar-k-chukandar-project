@@ -46,6 +46,10 @@ import {
   SIX_OCTAVE_BAND_DEFS,
   validateOriginalStemFiles,
 } from '../audio/phase4Logic';
+import {
+  clampTimestampRange,
+  computeShortTermLufsTimelineFromChannels,
+} from '../audio/shortTermLufsMath';
 
 interface DiagnosticResult {
   issues: AnalysisIssue[];
@@ -612,6 +616,18 @@ function evaluateDiagnostics(
     });
   }
 
+  // Strictly clamp every generated issue timestamp within [0, durationSec]
+  for (const issue of issues) {
+    issue.timestamps = issue.timestamps.map((ts) => {
+      const clamped = clampTimestampRange(ts.start_sec, ts.end_sec, durationSec);
+      return {
+        ...ts,
+        start_sec: clamped.start_sec,
+        end_sec: clamped.end_sec,
+      };
+    });
+  }
+
   return { issues, recommendations };
 }
 
@@ -723,10 +739,11 @@ export async function analyzeAudioWithClientWebAudio(
         momentaryMaxLufs = -0.691 + 10.0 * Math.log10(maxBlockPower);
       }
 
-      // Short-term (3.0s window = 30 blocks of 100ms)
-      const stBlocks = 30;
+      // Short-term (3.0s window = 30 blocks of 100ms; 1-block hop for short clips)
+      const stBlocks = Math.min(30, blockPowers.length);
+      const stHop = durationSec <= 10.0 ? 1 : 5;
       const stLufsList: number[] = [];
-      for (let i = 0; i + stBlocks <= blockPowers.length; i += 5) {
+      for (let i = 0; i + stBlocks <= blockPowers.length; i += stHop) {
         let sum = 0;
         for (let k = 0; k < stBlocks; k++) sum += blockPowers[i + k];
         const avgSt = sum / stBlocks;
@@ -744,6 +761,15 @@ export async function analyzeAudioWithClientWebAudio(
         const p95 = stLufsList[Math.floor(stLufsList.length * 0.95)];
         lraLu = Math.max(0.0, p95 - p10);
       }
+    }
+
+    // Real ITU-R BS.1770-4 K-weighted sliding-window Short-Term LUFS trajectory (even on 3s-4s clips)
+    const kWeightedShortTerm = computeShortTermLufsTimelineFromChannels(
+      channelsData,
+      sampleRate
+    );
+    if (shortTermMaxLufs === null && kWeightedShortTerm.shortTermMaxLufs !== null) {
+      shortTermMaxLufs = kWeightedShortTerm.shortTermMaxLufs;
     }
 
     // 4. Global RMS & Crest Factor
@@ -867,13 +893,37 @@ export async function analyzeAudioWithClientWebAudio(
         bCorr = denom > 1e-9 ? roundTo(bSumLR / denom, 2) : null;
       }
 
+      const bStartSec = roundTo(b * bucketDur, 2);
+      const bEndSec = roundTo(Math.min(durationSec, (b + 1) * bucketDur), 2);
+      const bMidSec = roundTo((bStartSec + bEndSec) * 0.5, 2);
+
+      // Map nearest real K-weighted sliding-window LUFS bucket onto this timeline bucket
+      let mappedSt: number | null = null;
+      let mappedMom: number | null = null;
+      const kBuckets = kWeightedShortTerm.timeline?.buckets ?? [];
+      if (kBuckets.length > 0) {
+        let bestIdx = 0;
+        let bestDist = Infinity;
+        for (let ki = 0; ki < kBuckets.length; ki++) {
+          const kb = kBuckets[ki];
+          const kMid = (kb.start_sec + kb.end_sec) * 0.5;
+          const dist = Math.abs(kMid - bMidSec);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = ki;
+          }
+        }
+        mappedSt = kBuckets[bestIdx].short_term_lufs;
+        mappedMom = kBuckets[bestIdx].momentary_lufs;
+      }
+
       buckets.push({
-        start_sec: roundTo(b * bucketDur, 2),
-        end_sec: roundTo((b + 1) * bucketDur, 2),
+        start_sec: bStartSec,
+        end_sec: bEndSec,
         peak_dbfs: bPeakDbfs,
         rms_dbfs: bRmsDbfs,
-        momentary_lufs: bPeakDbfs > -90 ? bPeakDbfs - 3.0 : null,
-        short_term_lufs: bRmsDbfs > -90 ? bRmsDbfs - 2.5 : null,
+        momentary_lufs: mappedMom,
+        short_term_lufs: mappedSt,
         phase_correlation: bCorr,
         clipped: bClip,
       });

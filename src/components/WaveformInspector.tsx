@@ -162,7 +162,6 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const isDark = document.documentElement.classList.contains('dark');
       const {
         bars,
         markers: currentMarkers,
@@ -185,13 +184,13 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       ctx.save();
       ctx.scale(dpr, dpr);
 
-      // 1. Canvas Background (Daylight Studio tokens)
-      ctx.fillStyle = isDark ? '#0D1211' : '#FAFAFA';
+      // 1. Canvas Background (Swiss Neo-Brutalist #0A0A0A High-Contrast Stage)
+      ctx.fillStyle = '#0A0A0A';
       ctx.fillRect(0, 0, cssW, cssH);
 
       // 2. Subtle Horizontal Centerline
       const midY = cssH / 2;
-      ctx.strokeStyle = isDark ? 'rgba(242,245,244,0.08)' : 'rgba(24,34,32,0.08)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, midY);
@@ -207,20 +206,12 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
         if (isSelected) {
           ctx.fillStyle = isTechnical
-            ? isDark
-              ? 'rgba(251, 113, 133, 0.22)'
-              : 'rgba(190, 18, 60, 0.14)'
-            : isDark
-            ? 'rgba(251, 191, 36, 0.22)'
-            : 'rgba(180, 83, 9, 0.14)';
+            ? 'rgba(255, 59, 31, 0.28)'
+            : 'rgba(255, 214, 0, 0.24)';
         } else {
           ctx.fillStyle = isTechnical
-            ? isDark
-              ? 'rgba(251, 113, 133, 0.08)'
-              : 'rgba(190, 18, 60, 0.06)'
-            : isDark
-            ? 'rgba(251, 191, 36, 0.08)'
-            : 'rgba(180, 83, 9, 0.06)';
+            ? 'rgba(255, 59, 31, 0.12)'
+            : 'rgba(255, 214, 0, 0.10)';
         }
         ctx.fillRect(x0, 0, x1 - x0, cssH);
       }
@@ -229,9 +220,9 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
       if (isLooping && loopRegion) {
         const lx0 = (loopRegion.startSec / dur) * cssW;
         const lx1 = Math.max(lx0 + 6, (loopRegion.endSec / dur) * cssW);
-        ctx.fillStyle = isDark ? 'rgba(77, 165, 151, 0.14)' : 'rgba(58, 114, 105, 0.12)';
+        ctx.fillStyle = 'rgba(255, 214, 0, 0.16)';
         ctx.fillRect(lx0, 0, lx1 - lx0, cssH);
-        ctx.strokeStyle = isDark ? '#4DA597' : '#3A7269';
+        ctx.strokeStyle = '#FFD600';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(lx0, 0);
@@ -258,37 +249,31 @@ export const WaveformInspector: React.FC<WaveformInspectorProps> = ({
 
           // Peak Outer Bar
           if (b.clipped) {
-            ctx.fillStyle = isDark ? '#FB7185' : '#BE123C';
+            ctx.fillStyle = '#FF3B1F';
           } else if (isPlayed) {
-            ctx.fillStyle = isDark ? 'rgba(77, 165, 151, 0.65)' : 'rgba(58, 114, 105, 0.42)';
+            ctx.fillStyle = 'rgba(255, 214, 0, 0.55)';
           } else {
-            ctx.fillStyle = isDark ? 'rgba(155, 168, 164, 0.38)' : 'rgba(82, 96, 93, 0.28)';
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.34)';
           }
           ctx.fillRect(x, midY - peakH, barW, peakH * 2);
 
           // RMS Inner Core
           if (!b.clipped) {
-            ctx.fillStyle = isPlayed
-              ? isDark
-                ? '#4DA597'
-                : '#3A7269'
-              : isDark
-              ? '#9BA8A4'
-              : '#52605D';
+            ctx.fillStyle = isPlayed ? '#FFD600' : '#FFFFFF';
             ctx.fillRect(x, midY - rmsH, barW, rmsH * 2);
           }
         }
       }
 
       // 6. Moving 60fps Playhead Cursor
-      ctx.fillStyle = isDark ? '#4DA597' : '#182220';
-      ctx.fillRect(Math.round(playX) - 0.75, 0, 1.5, cssH);
+      ctx.fillStyle = '#FFD600';
+      ctx.fillRect(Math.round(playX) - 1, 0, 2, cssH);
 
       // Playhead top cap triangle
       ctx.beginPath();
-      ctx.moveTo(playX - 4.5, 0);
-      ctx.lineTo(playX + 4.5, 0);
-      ctx.lineTo(playX, 6);
+      ctx.moveTo(playX - 5, 0);
+      ctx.lineTo(playX + 5, 0);
+      ctx.lineTo(playX, 7);
       ctx.closePath();
       ctx.fill();
 

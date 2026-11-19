@@ -13,6 +13,7 @@
     --bg-surface: #F7F7F5;
     --bg-elevated: #FFFFFF;
     --ink: #0A0A0A;
+    --ink-muted: #404040;
     --text-primary: #0A0A0A;
     --text-secondary: #404040;
     --border-ink: #0A0A0A;
@@ -43,6 +44,7 @@
     --bg-surface: #141414;
     --bg-elevated: #0A0A0A;
     --ink: #FFFFFF;
+    --ink-muted: #B8B8B4;
     --text-primary: #FFFFFF;
     --text-secondary: #B8B8B4;
     --border-ink: #FFFFFF;

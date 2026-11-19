@@ -214,10 +214,10 @@ export const ShortTermLufsTimeline: React.FC<ShortTermLufsTimelineProps> = ({
             y={padT}
             width={plotW}
             height={plotH}
-            rx={6}
+            rx={0}
             fill="var(--bg-surface)"
             stroke="var(--border-hairline-color)"
-            strokeWidth={1}
+            strokeWidth={1.5}
           />
 
           {/* Target Loudness Band Shading */}

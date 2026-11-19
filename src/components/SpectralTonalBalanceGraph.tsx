@@ -215,19 +215,19 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
 
         <div className="flex flex-wrap items-center gap-3.5 text-[11px] font-mono text-[var(--text-secondary)]">
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--accent-primary)] inline-block" />
+            <span className="w-2.5 h-2.5 bg-[var(--accent-primary)] inline-block" />
             <span>Your Mix</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-2.5 rounded-[3px] bg-[var(--accent-soft)] border border-[var(--border-active-color)] inline-block" />
+            <span className="w-3 h-2.5 bg-[var(--accent-soft)] border border-[var(--border-active-color)] inline-block" />
             <span>Target Envelope</span>
           </span>
           <span className="inline-flex items-center gap-1.5 text-[var(--status-caution)] font-medium">
-            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--status-caution)] inline-block" />
+            <span className="w-2.5 h-2.5 bg-[var(--status-caution)] inline-block" />
             <span>Warning</span>
           </span>
           <span className="inline-flex items-center gap-1.5 text-[var(--status-alert)] font-medium">
-            <span className="w-2.5 h-2.5 rounded-[3px] bg-[var(--status-alert)] inline-block" />
+            <span className="w-2.5 h-2.5 bg-[var(--status-alert)] inline-block" />
             <span>Critical</span>
           </span>
           {hasRefB && (
@@ -251,7 +251,7 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
           <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-[var(--text-secondary)]">
             <div className="flex items-center gap-2">
               <span
-                className="inline-block w-2 h-2 rounded-full"
+                className="inline-block w-2 h-2"
                 style={{
                   backgroundColor:
                     model.problemZones.length > 0
@@ -287,7 +287,7 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span
-                      className={`inline-flex items-center justify-center w-5 h-5 rounded-md font-mono text-xs font-bold text-white ${
+                      className={`inline-flex items-center justify-center w-5 h-5 font-mono text-xs font-bold text-white ${
                         activeZone.severity === 'critical'
                           ? 'bg-[var(--status-alert)]'
                           : 'bg-[var(--status-caution)]'
@@ -361,10 +361,10 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
               y={padTop}
               width={plotW}
               height={plotH}
-              rx={6}
+              rx={0}
               fill="var(--bg-elevated)"
               stroke="var(--border-hairline-color)"
-              strokeWidth={1}
+              strokeWidth={1.5}
             />
 
             {/* Soft #EBF3F1 Genre Target Envelope Polygon */}
@@ -511,7 +511,7 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
                     y={yTop}
                     width={barW}
                     height={barH}
-                    rx={2}
+                    rx={0}
                     fill={barFill}
                     fillOpacity={zone ? (isSelectedBand ? 0.85 : 0.68) : isSelectedBand ? 0.52 : 0.34}
                   />
@@ -571,7 +571,7 @@ export const SpectralTonalBalanceGraph: React.FC<SpectralTonalBalanceGraphProps>
                       y={markerY - 9}
                       width={16}
                       height={16}
-                      rx={5}
+                      rx={0}
                       fill={color}
                     />
                     <text

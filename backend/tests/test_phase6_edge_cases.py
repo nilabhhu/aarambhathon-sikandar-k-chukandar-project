@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.main import app
 from backend.tests.fixtures_generator import (
-    generate_clipped_audio,
     generate_out_of_phase_stereo,
     generate_silence,
     generate_sine_wave,

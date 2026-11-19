@@ -37,36 +37,18 @@ interface MeterPalette {
 }
 
 function readPalette(): MeterPalette {
-  const isDark =
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-
-  if (isDark) {
-    return {
-      surface: '#141B19',
-      trackBg: '#1D2724',
-      hairline: 'rgba(242, 245, 244, 0.11)',
-      textPrimary: '#F2F5F4',
-      textSecondary: '#9BA8A4',
-      teal: '#3B9688',
-      tealSoft: 'rgba(59, 150, 136, 0.24)',
-      safe: '#22C55E',
-      caution: '#F59E0B',
-      alert: '#F43F5E',
-    };
-  }
-
+  // Stark Swiss Neo-Brutalist #0A0A0A high-contrast canvas stage
   return {
-    surface: '#FFFFFF',
-    trackBg: '#F1F3F2',
-    hairline: 'rgba(24, 34, 32, 0.09)',
-    textPrimary: '#182220',
-    textSecondary: '#52605D',
-    teal: '#3A7269',
-    tealSoft: 'rgba(58, 114, 105, 0.18)',
-    safe: '#15803D',
-    caution: '#B45309',
-    alert: '#BE123C',
+    surface: '#0A0A0A',
+    trackBg: '#181818',
+    hairline: 'rgba(255, 255, 255, 0.16)',
+    textPrimary: '#FFFFFF',
+    textSecondary: '#A8A8A4',
+    teal: '#FFD600',
+    tealSoft: 'rgba(255, 214, 0, 0.20)',
+    safe: '#4ADE80',
+    caution: '#FFD600',
+    alert: '#FF3B1F',
   };
 }
 
@@ -238,7 +220,7 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
       const dbToX = (db: number) => padLeft + dbToMeterRatio(db, DB_MIN, DB_MAX) * barW;
 
       // Top calibrated dB scale ruler
-      ctx.font = '500 10px "Geist Mono", ui-monospace, monospace';
+      ctx.font = '600 10px "JetBrains Mono", ui-monospace, monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
 
@@ -257,7 +239,7 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
 
       // Reusable horizontal peak bar gradient (-60 -> 0 dBFS)
       const peakGrad = ctx.createLinearGradient(padLeft, 0, padLeft + barW, 0);
-      peakGrad.addColorStop(0.0, pal.teal);
+      peakGrad.addColorStop(0.0, '#FFFFFF');
       peakGrad.addColorStop(0.74, pal.safe); // up to ~-15 dB
       peakGrad.addColorStop(0.88, pal.caution); // -7..-3 dB
       peakGrad.addColorStop(0.985, pal.alert); // >= -1 dB
@@ -272,25 +254,24 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
         isClip: boolean
       ) => {
         // Channel label
-        ctx.font = '600 11px "Geist Mono", ui-monospace, monospace';
+        ctx.font = '700 11px "JetBrains Mono", ui-monospace, monospace';
         ctx.fillStyle = pal.textPrimary;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(label, 8, y + laneH / 2);
 
-        // Recessed bar track
+        // Sharp 0px recessed bar track
         ctx.fillStyle = pal.trackBg;
-        ctx.beginPath();
-        ctx.roundRect(padLeft, y, barW, laneH, 6);
-        ctx.fill();
+        ctx.fillRect(padLeft, y, barW, laneH);
+        ctx.strokeStyle = pal.hairline;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(padLeft + 0.5, y + 0.5, barW - 1, laneH - 1);
 
-        // Active peak bar fill
+        // Active peak bar fill (strict 0px)
         const fillW = dbToMeterRatio(peakDb, DB_MIN, DB_MAX) * barW;
         if (fillW > 1) {
           ctx.fillStyle = peakGrad;
-          ctx.beginPath();
-          ctx.roundRect(padLeft, y, fillW, laneH, 6);
-          ctx.fill();
+          ctx.fillRect(padLeft, y, fillW, laneH);
         }
 
         // Peak-hold cap
@@ -300,15 +281,13 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
           ctx.fillRect(Math.max(padLeft, hx - 2), y + 1, 2.5, laneH - 2);
         }
 
-        // Right-edge clip LED indicator
+        // Right-edge clip LED indicator (strict 0px square)
         const ledX = padLeft + barW + 6;
         ctx.fillStyle = isClip ? pal.alert : pal.trackBg;
         ctx.strokeStyle = isClip ? pal.alert : pal.hairline;
         ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(ledX, y + 2, 10, laneH - 4, 3);
-        ctx.fill();
-        ctx.stroke();
+        ctx.fillRect(ledX, y + 2, 10, laneH - 4);
+        ctx.strokeRect(ledX + 0.5, y + 2.5, 9, laneH - 5);
       };
 
       // Dual L / R Peak Bars
@@ -328,23 +307,24 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
       const lufsH = 30;
       const { min: tMin, max: tMax } = targetRef.current;
 
-      ctx.font = '600 10px "Geist Mono", ui-monospace, monospace';
+      ctx.font = '600 10px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillStyle = pal.textSecondary;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText('MOMENTARY (400ms) · SHORT-TERM MARKER (3s)', padLeft, lufsY - 6);
 
-      ctx.font = '600 11px "Geist Mono", ui-monospace, monospace';
+      ctx.font = '700 11px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillStyle = pal.teal;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText('LUFS', 8, lufsY + lufsH / 2);
 
-      // Recessed LUFS track
+      // Sharp 0px LUFS track
       ctx.fillStyle = pal.trackBg;
-      ctx.beginPath();
-      ctx.roundRect(padLeft, lufsY, barW, lufsH, 6);
-      ctx.fill();
+      ctx.fillRect(padLeft, lufsY, barW, lufsH);
+      ctx.strokeStyle = pal.hairline;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(padLeft + 0.5, lufsY + 0.5, barW - 1, lufsH - 1);
 
       // Shaded Genre/Stage Target Loudness Zone
       const tx0 = dbToX(tMin);
@@ -364,7 +344,7 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Momentary LUFS bar fill
+      // Momentary LUFS bar fill (strict 0px)
       const mRatio = dbToMeterRatio(sm.momentary, DB_MIN, DB_MAX);
       const mW = mRatio * barW;
       if (live.isPlaying && mW > 1) {
@@ -375,9 +355,7 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
             ? pal.caution
             : pal.teal;
         ctx.fillStyle = barColor;
-        ctx.beginPath();
-        ctx.roundRect(padLeft, lufsY + 5, mW, lufsH - 10, 4);
-        ctx.fill();
+        ctx.fillRect(padLeft, lufsY + 5, mW, lufsH - 10);
       }
 
       // Short-Term (3s) LUFS Precision Diamond & Cursor
@@ -401,32 +379,30 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
       }
 
       // Target Zone Caption below LUFS lane
-      ctx.font = '500 10px "Geist Mono", ui-monospace, monospace';
+      ctx.font = '600 10px "JetBrains Mono", ui-monospace, monospace';
       ctx.fillStyle = pal.teal;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       const labelCenter = Math.max(padLeft + 46, Math.min(width - 54, (tx0 + tx1) / 2));
       ctx.fillText(`Target ${tMin.toFixed(0)}..${tMax.toFixed(0)} LUFS`, labelCenter, lufsY + lufsH + 6);
 
-      // Clean Idle Banner when paused (never empty or broken)
+      // Sharp 0px Idle Banner when paused (strict Swiss Neo-Brutalist block)
       if (!live.isPlaying) {
-        const pillText = 'Press Play for Live Metering';
-        ctx.font = '500 11px "DM Sans", sans-serif';
+        const pillText = 'PRESS PLAY FOR LIVE METERING';
+        ctx.font = '700 10px "JetBrains Mono", ui-monospace, monospace';
         const textW = ctx.measureText(pillText).width;
         const boxW = textW + 24;
-        const boxH = 26;
-        const boxX = padLeft + (barW - boxW) / 2;
-        const boxY = height - 34;
+        const boxH = 24;
+        const boxX = Math.round(padLeft + (barW - boxW) / 2);
+        const boxY = height - 32;
 
-        ctx.fillStyle = pal.trackBg;
-        ctx.strokeStyle = pal.hairline;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.roundRect(boxX, boxY, boxW, boxH, 8);
-        ctx.fill();
-        ctx.stroke();
+        ctx.fillStyle = '#181818';
+        ctx.strokeStyle = '#FFD600';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(boxX, boxY, boxW, boxH);
+        ctx.strokeRect(boxX + 0.5, boxY + 0.5, boxW - 1, boxH - 1);
 
-        ctx.fillStyle = pal.textSecondary;
+        ctx.fillStyle = '#FFD600';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(pillText, boxX + boxW / 2, boxY + boxH / 2 + 0.5);
@@ -513,7 +489,7 @@ export const RealtimeLoudnessPeakMeter: React.FC<RealtimeLoudnessPeakMeterProps>
       {/* 60fps HTML5 Canvas Stage */}
       <div
         ref={containerRef}
-        className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] overflow-hidden"
+        className="w-full border-2 border-[var(--border-ink)] bg-[#0A0A0A] overflow-hidden"
       >
         <canvas
           ref={canvasRef}

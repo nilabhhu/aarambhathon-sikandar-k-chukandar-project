@@ -20,34 +20,17 @@ interface ScopePalette {
 }
 
 function readScopePalette(): ScopePalette {
-  const isDark =
-    typeof document !== 'undefined' &&
-    document.documentElement.classList.contains('dark');
-
-  if (isDark) {
-    return {
-      surface: '#141B19',
-      fadeFill: 'rgba(20, 27, 25, 0.22)',
-      ringFill: 'rgba(242, 245, 244, 0.03)',
-      grid: 'rgba(242, 245, 244, 0.10)',
-      axis: 'rgba(242, 245, 244, 0.18)',
-      label: '#9BA8A4',
-      tealRgb: '77, 165, 151',
-      cautionRgb: '251, 191, 36',
-      alertRgb: '251, 113, 133',
-    };
-  }
-
+  // Stark Swiss Neo-Brutalist #0A0A0A dark canvas stage in both Light & Dark themes
   return {
-    surface: '#FFFFFF',
-    fadeFill: 'rgba(255, 255, 255, 0.22)',
-    ringFill: 'rgba(58, 114, 105, 0.035)',
-    grid: 'rgba(24, 34, 32, 0.09)',
-    axis: 'rgba(24, 34, 32, 0.18)',
-    label: '#52605D',
-    tealRgb: '58, 114, 105',
-    cautionRgb: '180, 83, 9',
-    alertRgb: '190, 18, 60',
+    surface: '#0A0A0A',
+    fadeFill: 'rgba(10, 10, 10, 0.24)',
+    ringFill: 'rgba(255, 255, 255, 0.03)',
+    grid: 'rgba(255, 255, 255, 0.16)',
+    axis: 'rgba(255, 255, 255, 0.28)',
+    label: '#B8B8B4',
+    tealRgb: '255, 214, 0',
+    cautionRgb: '255, 255, 255',
+    alertRgb: '255, 59, 31',
   };
 }
 
@@ -174,7 +157,7 @@ export const StereoImagerVectorscope: React.FC = () => {
       gCtx.setLineDash([]);
 
       // Studio Graticule Labels: M, L, R, -S, +S
-      gCtx.font = '600 10px "Geist Mono", ui-monospace, monospace';
+      gCtx.font = '700 10px "JetBrains Mono", ui-monospace, monospace';
       gCtx.fillStyle = pal.label;
       gCtx.textAlign = 'center';
       gCtx.textBaseline = 'middle';
@@ -406,7 +389,7 @@ export const StereoImagerVectorscope: React.FC = () => {
       {/* 60fps HTML5 Canvas Goniometer Stage */}
       <div
         ref={containerRef}
-        className="w-full squircle-inner border border-[var(--border-hairline-color)] bg-[var(--bg-elevated)] overflow-hidden"
+        className="w-full border-2 border-[var(--border-ink)] bg-[#0A0A0A] overflow-hidden"
       >
         <canvas
           ref={canvasRef}

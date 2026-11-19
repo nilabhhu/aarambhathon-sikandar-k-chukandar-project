@@ -146,7 +146,7 @@ export const PhaseCorrelationMeter: React.FC<PhaseCorrelationMeterProps> = ({
                 left: `${Math.min(corrToPercent(effectiveMin), corrToPercent(effectiveMean))}%`,
                 width: `${Math.max(1.5, Math.abs(corrToPercent(effectiveMean) - corrToPercent(effectiveMin)))}%`,
               }}
-              className={`absolute top-2 bottom-2 rounded-[3px] ${
+              className={`absolute top-2 bottom-2 ${
                 effectiveMin < 0
                   ? 'bg-[var(--status-alert)]/40'
                   : 'bg-[var(--accent-primary)]/35'

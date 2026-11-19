@@ -94,7 +94,7 @@ export const DspAnalysisLoadingScreen: React.FC<DspAnalysisLoadingScreenProps> =
           return (
             <div
               key={i}
-              className="w-full max-w-[12px] bg-[var(--accent-primary)]/85 rounded-t-[4px] origin-bottom animate-eq-pulse"
+              className="w-full max-w-[12px] bg-[var(--accent-primary)]/85 origin-bottom animate-eq-pulse"
               style={{
                 height: `${h}%`,
                 animationDelay: `${delay}s`,
@@ -106,9 +106,9 @@ export const DspAnalysisLoadingScreen: React.FC<DspAnalysisLoadingScreenProps> =
       </div>
 
       {/* Clean Hairline Progress Track */}
-      <div className="w-full bg-[var(--bg-surface)] border border-[var(--border-hairline-color)] h-2 rounded-full overflow-hidden">
+      <div className="w-full bg-[var(--bg-surface)] border border-[var(--border-hairline-color)] h-2 overflow-hidden">
         <div
-          className="h-full bg-[var(--accent-primary)] rounded-full transition-all duration-150 ease-out"
+          className="h-full bg-[var(--accent-primary)] transition-all duration-150 ease-out"
           style={{ width: `${clampedProgress}%` }}
         />
       </div>
@@ -133,13 +133,13 @@ export const DspAnalysisLoadingScreen: React.FC<DspAnalysisLoadingScreenProps> =
             >
               <div className="mt-0.5 shrink-0">
                 {isDone ? (
-                  <div className="w-4 h-4 rounded-full bg-[var(--status-safe)] text-white flex items-center justify-center">
+                  <div className="w-4 h-4 bg-[var(--status-safe)] text-white flex items-center justify-center">
                     <Check className="w-2.5 h-2.5 stroke-[3]" />
                   </div>
                 ) : isActive ? (
                   <Loader2 className="w-4 h-4 text-[var(--accent-primary)] animate-spin" />
                 ) : (
-                  <div className="w-4 h-4 rounded-full border border-[var(--border-hairline-color)] text-[10px] font-mono tabular-nums flex items-center justify-center text-[var(--text-secondary)]">
+                  <div className="w-4 h-4 border border-[var(--border-hairline-color)] text-[10px] font-mono tabular-nums flex items-center justify-center text-[var(--text-secondary)]">
                     {idx + 1}
                   </div>
                 )}

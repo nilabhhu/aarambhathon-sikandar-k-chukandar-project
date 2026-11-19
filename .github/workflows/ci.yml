@@ -25,7 +25,7 @@ jobs:
       - name: Run TypeScript typecheck (lint)
         run: npm run lint
 
-      - name: Run Phase 1 & 2 Contract, Privacy & Integration Unit Tests
+      - name: Run Frontend Contract, DSP Math, Privacy & Integration Unit Tests
         run: npm test
 
       - name: Verify JSON Schema contract integrity (v2.0.0)
@@ -67,5 +67,5 @@ jobs:
       - name: Install backend requirements
         run: pip install -r backend/requirements.txt
 
-      - name: Run Full Pytest Suite (37 contract, dsp validation & endpoint tests)
+      - name: Run Full Pytest Suite (Phase 1–6 contract, DSP validation, endpoint & edge-case tests)
         run: PYTHONPATH=. pytest backend/tests/
