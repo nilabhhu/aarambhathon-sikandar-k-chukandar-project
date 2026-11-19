@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   AnalysisReport,
+  ArtistVisionTag,
   ConsentState,
   GenreId,
   MixStage,
@@ -10,6 +11,7 @@ import { useStudioAudioEngine, useStudioAudioState } from '../audio/StudioAudioC
 import { WaveformInspector } from './WaveformInspector';
 import { SpectralTonalBalanceGraph } from './SpectralTonalBalanceGraph';
 import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
+import { AiMentorPanel } from './AiMentorPanel';
 import {
   Upload,
   ArrowRight,
@@ -28,6 +30,9 @@ interface SimpleMixCheckViewProps {
   genre: GenreId;
   mixStage: MixStage;
   consent: ConsentState;
+  onChangeConsent?: (next: ConsentState) => void;
+  artistVision?: ArtistVisionTag[];
+  onChangeArtistVision?: (next: ArtistVisionTag[]) => void;
   onChangeGenre: (genre: GenreId) => void;
   onChangeMixStage: (stage: MixStage) => void;
   onAnalyzeAudioFile?: (file: File) => void;
@@ -46,6 +51,10 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
   report,
   genre,
   mixStage,
+  consent,
+  onChangeConsent,
+  artistVision: controlledArtistVision,
+  onChangeArtistVision,
   onChangeGenre,
   onChangeMixStage,
   onAnalyzeAudioFile,
@@ -59,6 +68,16 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
 }) => {
   const engine = useStudioAudioEngine();
   const audioState = useStudioAudioState();
+
+  const [localArtistVision, setLocalArtistVision] = useState<ArtistVisionTag[]>([]);
+  const artistVision = controlledArtistVision ?? localArtistVision;
+  const setArtistVision = (next: ArtistVisionTag[]) => {
+    if (onChangeArtistVision) {
+      onChangeArtistVision(next);
+    } else {
+      setLocalArtistVision(next);
+    }
+  };
 
   const [checkedSteps, setCheckedSteps] = useState<Record<string, boolean>>({});
   const [activeIssueId, setActiveIssueId] = useState<string | null>(
@@ -641,6 +660,19 @@ export const SimpleMixCheckView: React.FC<SimpleMixCheckViewProps> = ({
               })}
             </div>
           </section>
+
+          {/* SECTION D — Phase 5 Evidence-Bound AI Mix Mentor & Artist Vision */}
+          <AiMentorPanel
+            report={report}
+            genre={genre}
+            mixStage={mixStage}
+            interfaceMode="simple"
+            consent={consent}
+            onChangeConsent={(next) => onChangeConsent?.(next)}
+            artistVision={artistVision}
+            onChangeArtistVision={setArtistVision}
+            onSelectEvidenceId={handleFocusIssue}
+          />
         </>
       )}
     </div>

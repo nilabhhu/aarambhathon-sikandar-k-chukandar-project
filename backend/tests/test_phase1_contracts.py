@@ -29,7 +29,7 @@ def test_root_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] in ("ok", "online")
-    assert data["phase"] == 4
+    assert data["phase"] == 5
     assert data["is_demonstration_mode"] is False
 
 
@@ -38,17 +38,18 @@ def test_api_v1_health_endpoint():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] in ("ok", "online")
-    assert data["phase"] == 4
+    assert data["phase"] == 5
     assert data["mode"] == "mathematical_dsp_active"
     assert data["is_demonstration_mode"] is False
     assert data["active_contract_version"] == "2.0.0"
 
 
-def test_capabilities_endpoint_reports_phase4_boundaries():
+def test_capabilities_endpoint_reports_phase5_boundaries():
     res = client.get("/api/v1/capabilities")
     assert res.status_code == 200
     data = res.json()
-    assert data["phase"] == 4
+    assert data["phase"] == 5
+    assert data["interpret_ai"] is True
 
     rules = data["rules_enforced"]
     assert rules["no_ai_stem_separation"] is True
@@ -64,7 +65,7 @@ def test_capabilities_endpoint_reports_phase4_boundaries():
     assert caps["streaming_normalization_estimates"] == "IMPLEMENTED"
     assert caps["original_stem_multitrack_analysis"] == "IMPLEMENTED"
     assert caps["mix_revision_comparison"] == "IMPLEMENTED"
-    assert caps["ai_educational_interpretation"] == "NOT_IMPLEMENTED_PHASE_5"
+    assert caps["ai_educational_interpretation"] == "IMPLEMENTED"
 
 
 def test_schema_endpoint_serves_valid_canonical_schema():
@@ -186,7 +187,12 @@ def test_phase4_revisions_requires_inputs():
     assert alias_res.json()["detail"]["error_code"] == "MISSING_REVISION_INPUTS"
 
 
-def test_phase5_ai_endpoint_enforces_consent_and_501():
+def test_phase5_ai_endpoint_enforces_consent_and_returns_structured_coaching(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    from backend.app.main import reset_ai_rate_limiter
+
+    reset_ai_rate_limiter()
+
     # Without AI consent -> 403 Forbidden
     no_ai_consent = {
         "report_id": "demo-p1-indie_rock-unmastered_mix",
@@ -203,7 +209,7 @@ def test_phase5_ai_endpoint_enforces_consent_and_501():
     assert forbidden_res.status_code == 403
     assert forbidden_res.json()["detail"]["error_code"] == "AI_TRANSFER_CONSENT_REQUIRED"
 
-    # With AI consent -> 501 Not Implemented (Phase 5 boundary)
+    # With AI consent -> 200 OK (Phase 5 Deterministic Offline Fallback when GEMINI_API_KEY unset)
     with_ai_consent = {
         "report_id": "demo-p1-indie_rock-unmastered_mix",
         "consent_state": {
@@ -215,9 +221,14 @@ def test_phase5_ai_endpoint_enforces_consent_and_501():
             "consent_timestamp": "2026-11-10T18:00:00Z",
         },
     }
-    not_impl_res = client.post("/api/v1/interpret/ai", json=with_ai_consent)
-    assert not_impl_res.status_code == 501
-    assert not_impl_res.json()["detail"]["target_phase"] == 5
+    ok_res = client.post("/api/v1/interpret/ai", json=with_ai_consent)
+    assert ok_res.status_code == 200
+    body = ok_res.json()
+    assert body["mentor_mode"] == "deterministic_fallback"
+    assert body["privacy_audit"]["raw_audio_sent_to_ai"] is False
+    assert body["privacy_audit"]["external_ai_enabled"] is True
+    assert body["privacy_audit"]["training_opt_in"] is False
+    assert len(body["coaching_steps"]) >= 1
 
 
 def test_ephemeral_workspace_purged_after_context_exit():

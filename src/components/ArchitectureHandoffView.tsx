@@ -107,13 +107,13 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
         <div className="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-zinc-200 dark:border-zinc-800">
           <div>
             <p className="text-xs font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 4 · STEMS, REVISION DELTAS &amp; SHARED CONTRACT SPECIFICATION
+              PHASE 5 · AI MENTOR, PRIVACY CONTROLS &amp; SHARED CONTRACT SPECIFICATION
             </p>
             <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 mt-1">
               System Architecture &amp; Implementation Contract
             </h1>
             <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-1 max-w-3xl">
-              Single source of truth for repository layout, shared JSON Schema v2.0.0 data contracts, streaming multitrack stem DSP (zero AI separation), revision delta comparison, and 5-tier consent boundaries.
+              Single source of truth for repository layout, shared JSON Schema v2.0.0 data contracts, streaming multitrack stem DSP (zero AI separation), revision delta comparison, and consent-gated Gemini 2.5 Flash AI Mentor with deterministic offline fallback.
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs font-mono text-[#3A7269] dark:text-teal-400 bg-[#3A7269]/10 dark:bg-teal-950/50 border border-[#3A7269]/25 dark:border-teal-800 px-3 py-2 rounded-md">
@@ -134,24 +134,26 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             <pre className="mt-3 p-4 rounded-lg bg-[#FAFAFA] dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-xs font-mono text-zinc-800 dark:text-zinc-200 overflow-x-auto leading-relaxed">
 {`aarambhathon-sikandar-k-chukandar-project/
 ├── contracts/
-│   ├── analysis_report.schema.json  # JSON Schema (v2.0.0)
+│   ├── analysis_report.schema.json # JSON Schema (v2.0.0)
 │   └── fixtures/
-│       └── demo_report.json         # Canonical schema fixture
+│       └── demo_report.json        # Canonical schema fixture
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                  # FastAPI DSP, stems & revision routes
-│   │   └── dsp/                     # Loudness, spectral, stems, revisions
-│   └── tests/                       # Pytest DSP & contract suite
+│   │   ├── main.py                 # FastAPI DSP, stems, revisions, AI
+│   │   ├── dsp/                    # Loudness, spectral, stems, deltas
+│   │   └── ai/mentor.py            # Server-side Gemini 2.5 Flash
+│   └── tests/                      # Pytest DSP, contract & Phase 5
 ├── src/
 │   ├── audio/
-│   │   ├── StudioAudioEngine.ts     # Singleton Web Audio A/B/v2 & Lab
-│   │   ├── StudioAudioContext.tsx   # App-level audio persistence
-│   │   ├── spectralProfile.ts       # 6-band genre target math
-│   │   └── phase4Logic.ts           # Stem overlap & revision delta math
-│   ├── contracts/                   # Shared TS contract & tests
-│   ├── services/                    # Relative API & Web Audio DSP
-│   └── components/                  # Simple, Advanced, Stems & Revisions
-└── docs/                            # System & privacy specifications`}
+│   │   ├── StudioAudioEngine.ts    # Singleton Web Audio A/B/v2 & Lab
+│   │   ├── StudioAudioContext.tsx  # App-level audio persistence
+│   │   ├── spectralProfile.ts      # 6-band genre target math
+│   │   ├── phase4Logic.ts          # Stem overlap & revision math
+│   │   └── phase5MentorLogic.ts    # AI sanitizer & offline mentor
+│   ├── contracts/                  # Shared TS contract & tests
+│   ├── services/                   # Relative API & Web Audio DSP
+│   └── components/                 # Simple, Advanced, AiMentorPanel
+└── docs/                           # System & privacy specifications`}
             </pre>
           </div>
 
@@ -218,7 +220,7 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
                   <tr>
                     <td className="py-2 px-3 whitespace-nowrap">POST /api/v1/interpret/ai</td>
                     <td className="py-2 px-3 whitespace-nowrap">Phase 5</td>
-                    <td className="py-2 px-3 text-zinc-500">403 Consent / 501 Scheduled</td>
+                    <td className="py-2 px-3 text-[#3A7269] dark:text-teal-400">200 OK (Phase 5 · Consent-Gated)</td>
                   </tr>
                 </tbody>
               </table>
@@ -344,9 +346,9 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             </p>
           </div>
 
-          <div className="border border-[#3A7269] dark:border-teal-600 bg-[#3A7269]/[0.06] dark:bg-teal-950/30 rounded-lg p-4">
+          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 bg-[#FAFAFA] dark:bg-zinc-950/50">
             <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 4 · ACTIVE WORKBENCH
+              PHASE 4 · COMPLETE
             </div>
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
               Original Stems &amp; Revision Delta
@@ -356,15 +358,15 @@ export const ArchitectureHandoffView: React.FC<ArchitectureHandoffViewProps> = (
             </p>
           </div>
 
-          <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4">
-            <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400">
-              PHASE 5 · SCHEDULED
+          <div className="border border-[#3A7269] dark:border-teal-600 bg-[#3A7269]/[0.06] dark:bg-teal-950/30 rounded-lg p-4">
+            <div className="text-[11px] font-mono font-semibold text-[#3A7269] dark:text-teal-400">
+              PHASE 5 · ACTIVE WORKBENCH
             </div>
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mt-1">
-              Consent-Gated AI Coaching
+              Consent-Gated AI Mentor &amp; Artist Vision
             </h3>
             <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1.5">
-              Opt-in educational explanation strictly grounded in deterministic mathematical DSP measurements (Rules 2, 4 &amp; 5).
+              Server-side Gemini 2.5 Flash structured coaching strictly grounded in measured DSP evidence IDs with deterministic offline fallback and zero audio bytes by default (Rules 2–5).
             </p>
           </div>
 

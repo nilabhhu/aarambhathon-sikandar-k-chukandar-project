@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, MotionConfig } from 'motion/react';
 import {
   AnalysisReport,
+  ArtistVisionTag,
   ConsentState,
   GenreId,
   MixStage,
@@ -23,6 +24,7 @@ import { PhaseCorrelationMeter } from './PhaseCorrelationMeter';
 import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import { StemOverlapMatrix } from './StemOverlapMatrix';
 import { RevisionDeltaPanel } from './RevisionDeltaPanel';
+import { AiMentorPanel } from './AiMentorPanel';
 import {
   Activity,
   ChevronDown,
@@ -44,6 +46,9 @@ interface AdvancedMixCheckViewProps {
   genre: GenreId;
   mixStage: MixStage;
   consent: ConsentState;
+  onChangeConsent?: (next: ConsentState) => void;
+  artistVision?: ArtistVisionTag[];
+  onChangeArtistVision?: (next: ArtistVisionTag[]) => void;
   onChangeGenre: (genre: GenreId) => void;
   onChangeMixStage: (stage: MixStage) => void;
   onAnalyzeAudioFile?: (file: File) => void;
@@ -105,6 +110,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
   genre,
   mixStage,
   consent,
+  onChangeConsent,
+  artistVision: controlledArtistVision,
+  onChangeArtistVision,
   onChangeGenre,
   onChangeMixStage,
   onAnalyzeAudioFile,
@@ -123,6 +131,16 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
 }) => {
   const engine = useStudioAudioEngine();
   const audioState = useStudioAudioState();
+
+  const [localArtistVision, setLocalArtistVision] = useState<ArtistVisionTag[]>([]);
+  const artistVision = controlledArtistVision ?? localArtistVision;
+  const setArtistVision = (next: ArtistVisionTag[]) => {
+    if (onChangeArtistVision) {
+      onChangeArtistVision(next);
+    } else {
+      setLocalArtistVision(next);
+    }
+  };
 
   const [localStemReport, setLocalStemReport] = useState<StemMultitrackReport | null>(null);
   const [localRevisionComparison, setLocalRevisionComparison] =
@@ -942,6 +960,20 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
                 )}
               </section>
             </div>
+
+            {/* 4b. Phase 5: Evidence-Bound AI Mix Mentor & Artist Vision */}
+            <AiMentorPanel
+              report={report}
+              genre={genre}
+              mixStage={mixStage}
+              interfaceMode="advanced"
+              consent={consent}
+              onChangeConsent={(next) => onChangeConsent?.(next)}
+              artistVision={artistVision}
+              onChangeArtistVision={setArtistVision}
+              dawContext={dawContext}
+              onSelectEvidenceId={handleFocusIssue}
+            />
 
             {/* 5. Full Standardized DSP Parameter Table */}
             <section

@@ -6,6 +6,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AnalysisReport,
+  ArtistVisionTag,
   ConsentState,
   createDefaultConsentState,
   GenreId,
@@ -68,7 +69,7 @@ function MixLearnStudioShell() {
   const [loadingReport, setLoadingReport] = useState<boolean>(false);
   const [reportError, setReportError] = useState<string | null>(null);
 
-  // Phase 4 Lifted Session State: Original Stems, Mix Revision v2 Delta, and User-Reported DAW Context
+  // Phase 4 & 5 Lifted Session State: Stems, Mix Revision v2 Delta, DAW Context, and Artist Vision
   const [stemReport, setStemReport] = useState<StemMultitrackReport | null>(null);
   const [revisionComparison, setRevisionComparison] = useState<RevisionDeltaReport | null>(null);
   const [dawContext, setDawContext] = useState<UserReportedDawContext>({
@@ -78,6 +79,7 @@ function MixLearnStudioShell() {
     plugin_chain_notes: '',
     updated_at: null,
   });
+  const [artistVision, setArtistVision] = useState<ArtistVisionTag[]>([]);
 
   // Sync route changes with browser history
   const navigateTo = (newRoute: ActiveRoute) => {
@@ -361,7 +363,7 @@ function MixLearnStudioShell() {
         <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4 text-xs text-zinc-600 dark:text-zinc-400">
           <div className="flex flex-wrap items-center gap-2 font-mono tabular-nums">
             <span className="font-semibold text-[#3A7269] dark:text-teal-400">
-              PHASE 4 · STEMS &amp; REVISION DELTAS
+              PHASE 5 · AI MENTOR &amp; PRIVACY CONTROLS
             </span>
             <span aria-hidden="true">·</span>
             <span>SHARED ENGINE CONTRACT v{activeReport?.schema_version || '2.0.0'}</span>
@@ -441,13 +443,13 @@ function MixLearnStudioShell() {
             <section className="border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 p-8">
               <div className="max-w-4xl">
                 <p className="text-xs font-mono text-[#3A7269] dark:text-teal-400 font-semibold">
-                  PRIVACY-FIRST AUDIO ENGINEERING EDUCATION · PHASE 4 STEMS &amp; REVISION DELTAS
+                  PRIVACY-FIRST AUDIO ENGINEERING EDUCATION · PHASE 5 AI MENTOR &amp; PRIVACY CONTROLS
                 </p>
                 <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100 mt-2 text-balance">
                   Learn mixing and mastering by doing mixing and mastering, and receive meaningful insights through AI.
                 </h1>
                 <p className="text-base text-zinc-600 dark:text-zinc-400 mt-3 leading-relaxed">
-                  Examine your mixes with mathematical DSP measurements as the single source of truth, inspect user-uploaded original stems for potential spectral masking, verify v1 → v2 revision improvements, and audition loudness-matched reference tracks.
+                  Examine your mixes with mathematical DSP measurements as the single source of truth, inspect user-uploaded original stems for potential spectral masking, verify v1 → v2 revision improvements, and unlock consent-gated evidence-bound AI coaching.
                 </p>
                 <div className="mt-6 flex flex-wrap items-center gap-3">
                   <button
@@ -620,6 +622,9 @@ function MixLearnStudioShell() {
               genre={genre}
               mixStage={mixStage}
               consent={consent}
+              onChangeConsent={setConsent}
+              artistVision={artistVision}
+              onChangeArtistVision={setArtistVision}
               onChangeGenre={(g) => {
                 setGenre(g);
                 if (selectedFile) {
@@ -670,6 +675,9 @@ function MixLearnStudioShell() {
               genre={genre}
               mixStage={mixStage}
               consent={consent}
+              onChangeConsent={setConsent}
+              artistVision={artistVision}
+              onChangeArtistVision={setArtistVision}
               onChangeGenre={(g) => {
                 setGenre(g);
                 if (selectedFile) {

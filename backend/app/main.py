@@ -1,19 +1,23 @@
 """
-Phase 2 FastAPI Backend for MixLearn Studio.
+Phase 5 FastAPI Backend for MixLearn Studio.
 Exposes operational health, capabilities, shared schema contract (v2.0.0),
-Phase 1 demonstration endpoints, and real mathematical DSP analysis engine (POST /api/v1/analyze/dsp).
+core mathematical DSP analysis (POST /api/v1/analyze/dsp), streaming loudness estimates
+(POST /api/v1/analyze/streaming), original multitrack stem diagnostics
+(POST /api/v1/analyze/stems), mix revision delta comparison (POST /api/v1/compare/revisions),
+and consent-gated Gemini 2.5 Flash AI Mentor with Deterministic Offline Fallback
+(POST /api/v1/interpret/ai).
 
-Enforces Product Rules:
-- Rule 1: Forbidden AI stem separation / automatic stem splitting.
-- Rule 2: Mathematical DSP as sole measurement source of truth.
-- Rule 4 & 5: Three-tier granular consent and no model training default.
-- Rule 8: Separation of objective technical defects from subjective stylistic notes.
-- Rule 9: Zero unnecessary infrastructure, ephemeral stateless processing with auto-purge.
-
-Phases 3-6 endpoints return HTTP 501 Not Implemented with structured phase metadata.
+Enforces Absolute Product Rules:
+- Rule 1: Permanently prohibits AI stem separation / automatic stem splitting (HTTP 422).
+- Rule 2: Mathematical DSP is the sole measurement source of truth; AI is strictly evidence-bound.
+- Rule 3: Artist Vision profiles guide creative trade-offs without suppressing objective warnings.
+- Rule 4 & 5: Granular consent gates (HTTP 403) and default-off model training opt-in.
+- Rule 8: Strict separation of objective technical warnings from subjective stylistic notes.
+- Rule 9: Ephemeral stateless processing with automatic scratchpad purge and zero retention.
 """
 
 import asyncio
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 import json
 import logging
@@ -21,7 +25,9 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Any, Dict, List, Literal, Optional, Union
+import threading
+import time
+from typing import Any, Deque, Dict, List, Literal, Optional, Union
 import uuid
 
 import anyio
@@ -30,6 +36,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from backend.app.ai.mentor import (
+    GEMINI_TIMEOUT_SECONDS,
+    generate_ai_mentor_interpretation,
+)
 from backend.app.dsp.loudness import compute_streaming_normalization_estimates
 from backend.app.dsp.media_probe import stream_upload_and_hash
 from backend.app.dsp.pipeline import analyze_audio_workspace
@@ -50,14 +60,49 @@ SCHEMA_FILE = CONTRACTS_DIR / "analysis_report.schema.json"
 DEMO_REPORT_FILE = FIXTURES_DIR / "demo_report.json"
 
 app = FastAPI(
-    title="MixLearn Studio API — Phase 4 Mathematical DSP, Stems & Revision Deltas",
-    version="4.0.0-phase4",
-    description="Privacy-first audio mixing & mastering educational backend with mathematical DSP, original stem overlap diagnostics, and mix revision delta verification.",
+    title="MixLearn Studio API — Phase 5 Mathematical DSP, Stems, Revisions & AI Mentor",
+    version="5.0.0-phase5",
+    description="Privacy-first audio mixing & mastering educational backend with mathematical DSP, original stem overlap diagnostics, mix revision delta verification, and consent-gated Gemini AI Mentor.",
 )
 
 # Concurrency Guard: Bounded concurrent DSP executions to prevent OOM
 MAX_CONCURRENT_DSP = int(os.environ.get("MAX_CONCURRENT_DSP_TASKS", "2"))
 dsp_semaphore = asyncio.Semaphore(MAX_CONCURRENT_DSP)
+
+# Phase 5: Lightweight in-memory per-IP sliding-window rate limiter for AI Mentor (15 req/min)
+AI_MENTOR_RATE_LIMIT_PER_MIN = int(os.environ.get("AI_MENTOR_RATE_LIMIT_PER_MIN", "15"))
+AI_MENTOR_RATE_WINDOW_SEC = 60.0
+_ai_rate_lock = threading.Lock()
+_ai_rate_buckets: Dict[str, Deque[float]] = defaultdict(deque)
+
+
+def reset_ai_rate_limiter() -> None:
+    """Clears in-memory rate-limit buckets (used by automated test suites)."""
+    with _ai_rate_lock:
+        _ai_rate_buckets.clear()
+
+
+def _enforce_ai_rate_limit(client_ip: str) -> None:
+    now = time.monotonic()
+    with _ai_rate_lock:
+        bucket = _ai_rate_buckets[client_ip]
+        cutoff = now - AI_MENTOR_RATE_WINDOW_SEC
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= AI_MENTOR_RATE_LIMIT_PER_MIN:
+            retry_after = max(1, int(AI_MENTOR_RATE_WINDOW_SEC - (now - bucket[0])) + 1)
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error_code": "AI_MENTOR_RATE_LIMIT_EXCEEDED",
+                    "message": (
+                        f"AI Mentor rate limit reached ({AI_MENTOR_RATE_LIMIT_PER_MIN} requests/minute). "
+                        f"Please retry in {retry_after}s."
+                    ),
+                },
+                headers={"Retry-After": str(retry_after)},
+            )
+        bucket.append(now)
 
 # Safe CORS configuration supporting local dev and Vercel production domains
 allowed_origins = [
@@ -189,7 +234,7 @@ def get_health():
         "status": "online",
         "state": "ok",
         "service": "mixlearn-studio-api",
-        "phase": 4,
+        "phase": 5,
         "mode": "mathematical_dsp_active",
         "is_demonstration_mode": False,
         "active_contract_version": "2.0.0",
@@ -204,7 +249,7 @@ def get_api_v1_health():
         "status": "online",
         "state": "ok",
         "service": "mixlearn-studio-api",
-        "phase": 4,
+        "phase": 5,
         "mode": "mathematical_dsp_active",
         "is_demonstration_mode": False,
         "active_contract_version": "2.0.0",
@@ -219,10 +264,11 @@ def get_capabilities():
     Identifies implemented vs. scheduled capabilities and prohibited features (Rule 1).
     """
     return {
-        "phase": 4,
+        "phase": 5,
         "analyze_dsp": True,
         "analyze_stems": True,
         "compare_revisions": True,
+        "interpret_ai": True,
         "rules_enforced": {
             "no_ai_stem_separation": True,
             "dsp_is_sole_measurement_source": True,
@@ -245,7 +291,7 @@ def get_capabilities():
             "streaming_normalization_estimates": "IMPLEMENTED",
             "original_stem_multitrack_analysis": "IMPLEMENTED",
             "mix_revision_comparison": "IMPLEMENTED",
-            "ai_educational_interpretation": "NOT_IMPLEMENTED_PHASE_5",
+            "ai_educational_interpretation": "IMPLEMENTED",
         },
         "capabilities": {
             "analyze_dsp": {
@@ -287,9 +333,10 @@ def get_capabilities():
                 "disclosure": "Deterministic v1 vs. v2 mix revision deltas (LUFS, True Peak, LRA, Phase, 6-band spectral shifts) with improved/unchanged/regressed finding verification.",
             },
             "ai_educational_interpretation": {
-                "status": "NOT_IMPLEMENTED",
+                "status": "IMPLEMENTED",
                 "phase_target": 5,
-                "disclosure": "Consent-gated Gemini educational interpretation scheduled for Phase 5.",
+                "enabled": True,
+                "disclosure": "Rules 2, 3, 4 & 5: Consent-gated Gemini 2.5 Flash AI Mentor on sanitized metrics-only JSON with Artist Vision profiles and Deterministic Offline Fallback.",
             },
             "ai_stem_separation": {
                 "status": "PROHIBITED_BY_PRODUCT_RULE",
@@ -1022,33 +1069,134 @@ async def post_compare_revisions(request: Request):
 @app.post("/api/v1/interpret/ai")
 async def post_interpret_ai(request: Request):
     """
-    Phase 5 boundary: Educational AI interpretation.
-    Enforces Rule 4 consent gate and Rule 2 mathematical primacy.
+    Phase 5: Consent-Gated Evidence-Bound Gemini AI Mentor & Deterministic Offline Fallback.
+    - Enforces HTTP 403 when Toggle A (`allow_ai_interpretation` / `external_ai_transfer_consent`) is False.
+    - Enforces per-IP sliding-window rate limiting (15 req/min) to protect API quota.
+    - Transmits ONLY sanitized numerical DSP JSON + genre/stage/artist_vision + optional
+      `user_reported_context` (zero raw audio bytes when Toggle B is False).
+    - Falls back cleanly to Deterministic Offline Mentor whenever GEMINI_API_KEY is unset,
+      quota is exceeded, or Gemini times out (zero HTTP 500 crashes).
     """
     try:
         body = await request.json()
     except Exception:
         body = {}
 
-    consent_dict = body.get("consent_state", body) if isinstance(body, dict) else {}
-    has_ai_permission = bool(
-        consent_dict.get("external_ai_transfer_consent", False) or
-        consent_dict.get("ai_numerical_metrics_transfer_consent", False)
+    if not isinstance(body, dict):
+        body = {}
+
+    consent_dict = body.get("consent_state") if isinstance(body.get("consent_state"), dict) else {}
+
+    # Toggle A: Metrics-Only AI Mentor (supports both Phase 5 and Phase 1-4 semantic keys)
+    allow_ai_interpretation = bool(
+        body.get("allow_ai_interpretation", False)
+        or consent_dict.get("allow_ai_interpretation", False)
+        or consent_dict.get("external_ai_transfer_consent", False)
+        or consent_dict.get("ai_numerical_metrics_transfer_consent", False)
+        or body.get("external_ai_transfer_consent", False)
+        or body.get("ai_numerical_metrics_transfer_consent", False)
     )
-    if not has_ai_permission:
+
+    if not allow_ai_interpretation:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
                 "error_code": "AI_TRANSFER_CONSENT_REQUIRED",
-                "message": "Permission 2 (external_ai_transfer_consent) is required before transmitting measurements to external AI.",
+                "message": (
+                    "Permission 2 / Toggle A (allow_ai_interpretation / external_ai_transfer_consent) "
+                    "is required before requesting AI Mentor interpretation."
+                ),
             },
         )
 
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={
-            "error_code": "PHASE_BOUNDARY_NOT_IMPLEMENTED",
-            "target_phase": 5,
-            "message": "Consent-gated Gemini API educational coaching on structured DSP measurements is scheduled for Phase 5.",
-        },
+    # Per-IP rate limit (applied after consent check so unconsented calls remain 403)
+    forwarded_for = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    client_ip = forwarded_for or (request.client.host if request.client else "unknown")
+    _enforce_ai_rate_limit(client_ip)
+
+    # Toggle B: Direct audio inspection (separate, default False; metrics-only JSON sends 0 audio bytes)
+    allow_direct_audio_inspection = bool(
+        body.get("allow_direct_audio_inspection", False)
+        or consent_dict.get("allow_direct_audio_inspection", False)
+        or consent_dict.get("ai_audio_content_inspection_consent", False)
     )
+
+    # Toggle C: Model training opt-in (strictly separate, default False per Rule 5)
+    allow_model_training = bool(
+        body.get("allow_model_training", False)
+        or consent_dict.get("allow_model_training", False)
+        or consent_dict.get("model_training_opt_in", False)
+    )
+
+    # Extract sanitized DSP report payload (either nested under `report` / `dsp_report` or top-level)
+    dsp_report = body.get("report") or body.get("dsp_report")
+    if not isinstance(dsp_report, dict):
+        dsp_report = {
+            "measurements": body.get("measurements") or body.get("objective_measurements") or {},
+            "issues": body.get("issues") or [],
+        }
+
+    input_ctx = dsp_report.get("input_context") if isinstance(dsp_report.get("input_context"), dict) else {}
+    raw_genre = str(body.get("genre") or input_ctx.get("genre") or "indie_rock")
+    raw_stage = str(body.get("mix_stage") or input_ctx.get("mix_stage") or "unmastered_mix")
+    norm_genre, norm_stage = _normalize_genre_and_stage(raw_genre, raw_stage)
+    interface_mode = (
+        "simple"
+        if "simple" in str(body.get("interface_mode") or input_ctx.get("interface_mode") or "advanced").lower()
+        else "advanced"
+    )
+
+    artist_vision = body.get("artist_vision")
+    if not isinstance(artist_vision, list):
+        artist_vision = []
+
+    user_reported_context = body.get("user_reported_context")
+    if not isinstance(user_reported_context, dict):
+        user_reported_context = None
+
+    try:
+        async with asyncio.timeout(GEMINI_TIMEOUT_SECONDS + 2.0):
+            mentor_response = await anyio.to_thread.run_sync(
+                generate_ai_mentor_interpretation,
+                dsp_report,
+                norm_genre,
+                norm_stage,
+                interface_mode,
+                artist_vision,
+                allow_ai_interpretation,
+                allow_direct_audio_inspection,
+                allow_model_training,
+                user_reported_context,
+            )
+    except TimeoutError:
+        from backend.app.ai.mentor import (
+            AiPrivacyAudit,
+            build_deterministic_mentor_response,
+            normalize_artist_vision,
+            sanitize_dsp_payload_for_ai,
+        )
+
+        sanitized = sanitize_dsp_payload_for_ai(
+            report=dsp_report,
+            genre=norm_genre,
+            mix_stage=norm_stage,
+            interface_mode=interface_mode,
+            artist_vision=normalize_artist_vision(artist_vision),
+            user_reported_context=user_reported_context,
+        )
+        mentor_response = build_deterministic_mentor_response(
+            sanitized_payload=sanitized,
+            privacy_audit=AiPrivacyAudit(
+                raw_audio_sent_to_ai=False,
+                external_ai_enabled=True,
+                direct_audio_inspection_enabled=allow_direct_audio_inspection,
+                training_opt_in=allow_model_training,
+                retention_policy=(
+                    "Ephemeral API processing only (metrics-only JSON, 0 audio bytes sent). "
+                    "Zero server retention and zero model training on user audio or metrics."
+                ),
+            ),
+            fallback_reason="Gemini API request timed out; running Deterministic Offline Mentor.",
+        )
+
+    return JSONResponse(content=mentor_response.model_dump())

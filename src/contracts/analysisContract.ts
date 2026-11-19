@@ -427,6 +427,40 @@ export interface UserReportedDawContext {
   updated_at: string | null;
 }
 
+export type ArtistVisionTag = 'Punchy' | 'Warm' | 'Aggressive' | 'Wide' | 'Dynamic';
+
+export interface AiCoachingStep {
+  evidence_id: string;
+  classification: IssueClassification;
+  title: string;
+  what_happened: string;
+  why_it_matters: string;
+  listen_prompt: string;
+  what_to_try: string;
+  recheck_target: string;
+}
+
+export interface AiPrivacyAudit {
+  raw_audio_sent_to_ai: boolean;
+  external_ai_enabled: boolean;
+  direct_audio_inspection_enabled: boolean;
+  training_opt_in: boolean;
+  retention_policy: string;
+}
+
+export interface AiMentorResponse {
+  schema_version: '2.0.0';
+  mentor_mode: 'gemini_live' | 'deterministic_fallback';
+  model_name: string | null;
+  fallback_reason: string | null;
+  artist_vision: ArtistVisionTag[];
+  objective_warnings_preserved: boolean;
+  summary: string;
+  vision_alignment_note: string;
+  coaching_steps: AiCoachingStep[];
+  privacy_audit: AiPrivacyAudit;
+}
+
 export interface ContractValidationResult {
   valid: boolean;
   errors: string[];
@@ -634,11 +668,12 @@ export function validateAnalysisReport(
     }
   }
 
-  // Verify Phase 5+ extensions remain null while allowing implemented Phase 3/4 slots in live DSP mode
+  // Verify unimplemented extensions remain null while allowing implemented Phase 3-5 slots in live DSP mode
   const implementedLiveExtensionSlots = new Set([
     'streaming_estimates',
     'stem_multitrack_report',
     'revision_comparison',
+    'ai_interpretation',
   ]);
   if (report.extensions) {
     for (const [extKey, extVal] of Object.entries(report.extensions)) {

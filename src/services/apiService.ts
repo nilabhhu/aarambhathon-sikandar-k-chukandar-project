@@ -6,7 +6,9 @@
  */
 
 import {
+  AiMentorResponse,
   AnalysisReport,
+  ArtistVisionTag,
   ConsentState,
   createDefaultConsentState,
   GenreId,
@@ -15,6 +17,7 @@ import {
   RevisionDeltaReport,
   StemBandKey,
   StemMultitrackReport,
+  UserReportedDawContext,
   validateAnalysisReport,
 } from '../contracts/analysisContract';
 import { generatePhase1DemoReport } from '../contracts/demoFixtures';
@@ -24,6 +27,10 @@ import {
   measureSixBandsFromFileClient,
 } from './clientWebAudioDsp';
 import { compareRevisionReportsPure, validateOriginalStemFiles } from '../audio/phase4Logic';
+import {
+  buildDeterministicClientMentorResponse,
+  buildSanitizedAiMentorRequest,
+} from '../audio/phase5MentorLogic';
 
 const RAW_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL
@@ -601,5 +608,118 @@ export async function compareRevisionsWithDsp(
     return await runClientFallback();
   } catch {
     return await runClientFallback();
+  }
+}
+
+export interface AiMentorFetchResult {
+  success: boolean;
+  source: 'backend' | 'local_offline_fallback';
+  mentor?: AiMentorResponse;
+  statusCode?: number;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/**
+ * Phase 5: Requests evidence-bound Gemini AI Mentor interpretation via POST /api/v1/interpret/ai.
+ * - Enforces Toggle A consent (`external_ai_transfer_consent`) strictly before making any external request.
+ * - Transmits ONLY sanitized numerical DSP JSON + genre/stage/artist_vision + optional user_reported_context
+ *   (ZERO raw audio bytes).
+ * - Never masks explicit backend HTTP 403 (consent) or HTTP 429 (rate limit) responses.
+ * - Gracefully degrades to Deterministic Offline Mentor when backend is unreachable/401/405.
+ */
+export async function requestAiMentorInterpretation(
+  params: {
+    report: AnalysisReport;
+    genre: GenreId;
+    mixStage: MixStage;
+    interfaceMode: InterfaceMode;
+    artistVision: ArtistVisionTag[];
+    consent: ConsentState;
+    dawContext?: UserReportedDawContext | null;
+  },
+  customFetch: typeof fetch = fetch
+): Promise<AiMentorFetchResult> {
+  const sanitizedBody = buildSanitizedAiMentorRequest(params);
+
+  if (!sanitizedBody.allow_ai_interpretation) {
+    return {
+      success: false,
+      source: 'backend',
+      statusCode: 403,
+      errorCode: 'AI_TRANSFER_CONSENT_REQUIRED',
+      errorMessage:
+        'Toggle A (Metrics-Only AI Mentor consent) is OFF. Enable Toggle A to request Gemini AI Mentor coaching, or view Deterministic Offline Guidance locally.',
+    };
+  }
+
+  const runOfflineFallback = (reason: string): AiMentorFetchResult => ({
+    success: true,
+    source: 'local_offline_fallback',
+    statusCode: 200,
+    mentor: buildDeterministicClientMentorResponse({
+      report: params.report,
+      genre: params.genre,
+      mixStage: params.mixStage,
+      artistVision: params.artistVision,
+      consent: params.consent,
+      fallbackReason: reason,
+    }),
+  });
+
+  try {
+    const res = await customFetch(buildApiUrl('/api/v1/interpret/ai'), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(sanitizedBody),
+    });
+
+    if (res.ok) {
+      const mentor: AiMentorResponse = await res.json();
+      return {
+        success: true,
+        source: 'backend',
+        mentor,
+        statusCode: res.status,
+      };
+    }
+
+    let errMsg = `Backend HTTP ${res.status}: ${res.statusText}`;
+    let errCode: string | undefined;
+    let hasFastApiDetail = false;
+    try {
+      const errJson = await res.json();
+      if (errJson?.detail?.message) {
+        errMsg = errJson.detail.message;
+        errCode = errJson.detail.error_code;
+        hasFastApiDetail = true;
+      } else if (typeof errJson?.detail === 'string') {
+        errMsg = errJson.detail;
+        hasFastApiDetail = true;
+      }
+    } catch {
+      // ignore non-json responses
+    }
+
+    if (hasFastApiDetail && (res.status === 403 || res.status === 429 || res.status === 422)) {
+      return {
+        success: false,
+        source: 'backend',
+        statusCode: res.status,
+        errorCode: errCode,
+        errorMessage: errMsg,
+      };
+    }
+
+    return runOfflineFallback(
+      'FastAPI backend is currently offline in this preview; running Deterministic Offline Mentor locally (0 audio bytes sent).'
+    );
+  } catch {
+    return runOfflineFallback(
+      'FastAPI backend unreachable; running Deterministic Offline Mentor locally (0 audio bytes sent).'
+    );
   }
 }
