@@ -23,6 +23,12 @@ import {
   dbToLinearGain,
   SixBandMeasurements,
 } from './spectralProfile';
+import {
+  LiveLoudnessAndPeaks,
+  LiveLoudnessPeakTracker,
+} from './realtimeMeters';
+
+export type { LiveLoudnessAndPeaks };
 
 export type ActiveDeck = 'A' | 'B' | 'V2';
 export type TranslationMode = 'full' | 'phone' | 'laptop';
@@ -438,11 +444,14 @@ export class StudioAudioEngine {
   private laptopBranchGain: GainNode | null = null;
   private masterGain: GainNode | null = null;
 
-  // Real-time stereo correlation analysers
+  // Real-time stereo correlation & 60fps studio metering analysers (pre-allocated, zero GC)
   private analyserL: AnalyserNode | null = null;
   private analyserR: AnalyserNode | null = null;
   private corrBufL: Float32Array<ArrayBuffer> = new Float32Array(1024);
   private corrBufR: Float32Array<ArrayBuffer> = new Float32Array(1024);
+  private meterBufL: Float32Array<ArrayBuffer> = new Float32Array(1024);
+  private meterBufR: Float32Array<ArrayBuffer> = new Float32Array(1024);
+  private liveLoudnessTracker = new LiveLoudnessPeakTracker(48000);
 
   // Playback timing state (AudioContext clock driven)
   private isPlaying = false;
@@ -710,6 +719,7 @@ export class StudioAudioEngine {
     this.masterGain = masterGain;
     this.analyserL = analyserL;
     this.analyserR = analyserR;
+    this.liveLoudnessTracker.setSampleRate(ctx.sampleRate);
     this.graphReady = true;
 
     return ctx;
@@ -786,6 +796,7 @@ export class StudioAudioEngine {
     this.isLooping = false;
     this.playbackError = null;
     this.primaryFile = file;
+    this.liveLoudnessTracker.resetAll();
 
     try {
       const ctx = this.ensureAudioGraph();
@@ -954,6 +965,7 @@ export class StudioAudioEngine {
     this.loopRegion = null;
     this.isLooping = false;
     this.playbackError = null;
+    this.liveLoudnessTracker.resetAll();
     this.updateReferenceMatchOffset();
     this.updateRevisionV2MatchOffset();
     this.emit();
@@ -1258,6 +1270,61 @@ export class StudioAudioEngine {
     const denom = Math.sqrt(sumLL * sumRR);
     if (denom < 1e-8) return null;
     return Math.max(-1, Math.min(1, sumLR / denom));
+  }
+
+  /**
+   * Real-time 60fps Sample Peak (with 1.5s peak-hold + smooth decay), Clip latch,
+   * 400ms Momentary LUFS, and 3s Short-Term LUFS directly from paired analyserL/analyserR.
+   * Zero heap allocations per frame.
+   */
+  public getLiveLoudnessAndPeaks(): LiveLoudnessAndPeaks {
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!this.isPlaying || !this.analyserL || !this.analyserR) {
+      return this.liveLoudnessTracker.update(this.meterBufL, this.meterBufR, nowMs, false);
+    }
+
+    this.analyserL.getFloatTimeDomainData(this.meterBufL);
+    this.analyserR.getFloatTimeDomainData(this.meterBufR);
+    return this.liveLoudnessTracker.update(this.meterBufL, this.meterBufR, nowMs, true);
+  }
+
+  /**
+   * Clears peak-hold bars and clip indicator latch on demand.
+   */
+  public resetLivePeakHold(): void {
+    this.liveLoudnessTracker.resetPeakHold();
+  }
+
+  /**
+   * Copies current post-processing L/R time-domain samples into caller-provided buffers
+   * for the 60fps 2D Goniometer/Vectorscope (zero GC allocations).
+   * Returns false when paused or silent.
+   */
+  public getLiveStereoSamples(
+    targetBufferL: Float32Array,
+    targetBufferR: Float32Array
+  ): boolean {
+    if (!this.isPlaying || !this.analyserL || !this.analyserR) {
+      return false;
+    }
+
+    this.analyserL.getFloatTimeDomainData(this.meterBufL);
+    this.analyserR.getFloatTimeDomainData(this.meterBufR);
+
+    const n = Math.min(targetBufferL.length, targetBufferR.length, this.meterBufL.length);
+    let maxAbs = 0;
+    for (let i = 0; i < n; i++) {
+      const l = this.meterBufL[i];
+      const r = this.meterBufR[i];
+      targetBufferL[i] = l;
+      targetBufferR[i] = r;
+      const al = Math.abs(l);
+      const ar = Math.abs(r);
+      if (al > maxAbs) maxAbs = al;
+      if (ar > maxAbs) maxAbs = ar;
+    }
+
+    return maxAbs > 1e-6;
   }
 }
 

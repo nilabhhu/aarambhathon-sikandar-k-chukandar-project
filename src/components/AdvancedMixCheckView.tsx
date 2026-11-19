@@ -21,6 +21,8 @@ import { WaveformInspector, formatTimecode } from './WaveformInspector';
 import { SpectralTonalBalanceGraph } from './SpectralTonalBalanceGraph';
 import { ShortTermLufsTimeline } from './ShortTermLufsTimeline';
 import { PhaseCorrelationMeter } from './PhaseCorrelationMeter';
+import { RealtimeLoudnessPeakMeter } from './RealtimeLoudnessPeakMeter';
+import { StereoImagerVectorscope } from './StereoImagerVectorscope';
 import { DspAnalysisLoadingScreen } from './DspAnalysisLoadingScreen';
 import { StemOverlapMatrix } from './StemOverlapMatrix';
 import { RevisionDeltaPanel } from './RevisionDeltaPanel';
@@ -881,6 +883,28 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               timeline={report.timeline}
               showTransportBar={false}
             />
+
+            {/* 2B. Real-Time 60fps Studio Output Metering Row (Peak/LUFS + 2D Goniometer) */}
+            <div
+              data-testid="live-studio-metering-row"
+              className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch"
+            >
+              <div className="lg:col-span-7 flex flex-col">
+                <div className="flex-1">
+                  <RealtimeLoudnessPeakMeter
+                    genre={genre}
+                    mixStage={mixStage}
+                    targetMinLufs={report.measurements.integrated_loudness.target_min}
+                    targetMaxLufs={report.measurements.integrated_loudness.target_max}
+                  />
+                </div>
+              </div>
+              <div className="lg:col-span-5 flex flex-col">
+                <div className="flex-1">
+                  <StereoImagerVectorscope />
+                </div>
+              </div>
+            </div>
 
             {/* 3. Three Clean Diagnostic Visualizations (Asymmetric Studio Grid) */}
             <div className="space-y-6">
