@@ -320,6 +320,9 @@ export const AdvancedMixCheckView: React.FC<AdvancedMixCheckViewProps> = ({
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
                 Select your genre, choose Unmastered Mix or Final Master, and upload your audio bounce (.WAV, .FLAC, .AIFF, or .MP3) above to open the Advanced Mix Check Workbench.
               </p>
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 leading-relaxed pt-1">
+                Upload Mix (A) to start—once loaded, you can optionally add a Reference Track (B) for loudness-matched A/B comparison.
+              </p>
             </div>
           </section>
         )}

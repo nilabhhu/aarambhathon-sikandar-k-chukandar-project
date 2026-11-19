@@ -48,8 +48,7 @@ function MixLearnStudioShell() {
   const [genre, setGenre] = useState<GenreId>('indie_rock');
   const [mixStage, setMixStage] = useState<MixStage>('unmastered_mix');
   const [consent, setConsent] = useState<ConsentState>(() => createDefaultConsentState());
-  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
-  const [checkingBackend, setCheckingBackend] = useState<boolean>(false);
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   // File Upload & Lifecycle States
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -92,18 +91,19 @@ function MixLearnStudioShell() {
     }
   }, [darkMode]);
 
-  // Initial Backend Health Check on Mount
+  // Initial Backend Health Check on Mount (starts in 'checking' state to avoid cold-start flicker)
   useEffect(() => {
     let isCancelled = false;
+    setBackendStatus('checking');
     const initBackend = async () => {
       try {
         const health = await checkBackendHealth();
         if (!isCancelled) {
-          setBackendOnline(health.online);
+          setBackendStatus(health.online ? 'online' : 'offline');
         }
       } catch {
         if (!isCancelled) {
-          setBackendOnline(false);
+          setBackendStatus('offline');
         }
       }
     };
@@ -239,14 +239,12 @@ function MixLearnStudioShell() {
 
   // Manual or on-demand backend health check
   const handleCheckBackendHealth = async () => {
-    setCheckingBackend(true);
+    setBackendStatus('checking');
     try {
       const health = await checkBackendHealth();
-      setBackendOnline(health.online);
+      setBackendStatus(health.online ? 'online' : 'offline');
     } catch {
-      setBackendOnline(false);
-    } finally {
-      setCheckingBackend(false);
+      setBackendStatus('offline');
     }
   };
 
@@ -361,16 +359,16 @@ function MixLearnStudioShell() {
             <div
               data-testid="engine-status-indicator"
               className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-mono border ${
-                backendOnline === true
+                backendStatus === 'online'
                   ? 'bg-[#3A7269]/10 text-[#3A7269] border-[#3A7269]/25 dark:bg-teal-950/40 dark:text-teal-300 dark:border-teal-800'
                   : 'bg-white text-zinc-600 border-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:border-zinc-700'
               }`}
             >
               <Server className="w-3.5 h-3.5 shrink-0" />
               <span>
-                {checkingBackend
-                  ? 'Checking Engine...'
-                  : backendOnline === true
+                {backendStatus === 'checking'
+                  ? 'Engine: Connecting to DSP...'
+                  : backendStatus === 'online'
                   ? 'Engine: FastAPI DSP (Online)'
                   : 'Engine: Local Web Audio'}
               </span>
@@ -382,7 +380,7 @@ function MixLearnStudioShell() {
                 className="hover:opacity-75 ml-0.5 cursor-pointer"
               >
                 <RefreshCw
-                  className={`w-3 h-3 ${checkingBackend || loadingReport ? 'animate-spin' : ''}`}
+                  className={`w-3 h-3 ${backendStatus === 'checking' || loadingReport ? 'animate-spin' : ''}`}
                 />
               </button>
             </div>

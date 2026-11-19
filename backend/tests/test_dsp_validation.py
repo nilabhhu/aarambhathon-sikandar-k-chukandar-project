@@ -13,6 +13,7 @@ import pytest
 import soundfile as sf
 
 from backend.app.dsp.loudness import (
+    compute_streaming_normalization_estimates,
     compute_true_peak_4x_polyphase_dbtp,
     measure_loudness_ebur128,
 )
@@ -167,4 +168,59 @@ def test_synthetic_itu_bs1770_lufs_and_4x_polyphase_true_peak():
         assert res["integrated_lufs"] > -6.0  # Hard-clipped 200Hz stereo signal is very loud
         assert res["true_peak_dbtp"] is not None
         assert res["true_peak_dbtp"] >= 0.0  # Hard-clipped signal produces >= 0.0 dBTP true peak
+
+
+def test_ffmpeg_error_logged_and_triggers_fallback(monkeypatch, caplog):
+    """Validates FFmpeg execution errors are logged as warnings and cleanly trigger pyloudnorm + 4x polyphase fallback."""
+    import subprocess
+    from backend.app.dsp import loudness as loudness_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("simulated ffmpeg crash")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+
+    with tempfile.TemporaryDirectory() as td:
+        wav_path = Path(td) / "fallback_sine.wav"
+        data, sr = generate_sine_wave(duration_sec=2.0, sample_rate=48000, peak_dbfs=-6.0, channels=2)
+        sf.write(str(wav_path), data, sr, subtype="PCM_24")
+
+        with caplog.at_level("WARNING", logger=loudness_mod.__name__):
+            res = measure_loudness_ebur128(wav_path, duration_seconds=2.0, sample_rate_hz=sr)
+
+        assert res["ffmpeg_fallback_used"] is True
+        assert res["integrated_lufs"] is not None
+        assert res["true_peak_dbtp"] is not None
+        assert abs(res["true_peak_dbtp"] - (-6.0)) < 0.15
+        assert any("simulated ffmpeg crash" in rec.message for rec in caplog.records)
+
+
+def test_streaming_normalization_estimates_deterministic():
+    """Validates Rule 7 deterministic streaming estimates for Spotify Normal, Apple Music Sound Check, and YouTube."""
+    # Loud master (-10.0 LUFS, -0.5 dBTP) -> attenuated across all platforms, no upward limiter warning
+    loud = compute_streaming_normalization_estimates(-10.0, -0.5)
+    assert loud["available"] is True
+    by_p = {p["platform"]: p for p in loud["platforms"]}
+    assert by_p["Spotify Normal"]["estimated_gain_db"] == -4.0
+    assert by_p["Spotify Normal"]["limiter_engaged_warning"] is False
+    assert by_p["Apple Music Sound Check"]["estimated_gain_db"] == -6.0
+    assert by_p["Apple Music Sound Check"]["limiter_engaged_warning"] is False
+    assert by_p["YouTube"]["estimated_gain_db"] == -4.0
+    assert by_p["YouTube"]["limiter_engaged_warning"] is False
+
+    # Quiet dynamic mix (-18.0 LUFS, -3.5 dBTP) -> Spotify (+4.0 -> +0.5 dBTP) triggers limiter; Apple (+2.0 -> -1.5 dBTP) safe; YouTube (0.0 dB) no upward boost
+    quiet = compute_streaming_normalization_estimates(-18.0, -3.5)
+    by_q = {p["platform"]: p for p in quiet["platforms"]}
+    assert by_q["Spotify Normal"]["estimated_gain_db"] == 4.0
+    assert by_q["Spotify Normal"]["limiter_engaged_warning"] is True
+    assert by_q["Apple Music Sound Check"]["estimated_gain_db"] == 2.0
+    assert by_q["Apple Music Sound Check"]["limiter_engaged_warning"] is False
+    assert by_q["YouTube"]["estimated_gain_db"] == 0.0
+    assert by_q["YouTube"]["limiter_engaged_warning"] is False
+
+    # Unavailable LUFS (silence) -> available False, no fabricated gain
+    silent = compute_streaming_normalization_estimates(None, None)
+    assert silent["available"] is False
+    assert silent["platforms"] == []
+
 

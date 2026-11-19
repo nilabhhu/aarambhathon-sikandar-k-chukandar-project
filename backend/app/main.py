@@ -25,11 +25,12 @@ from typing import Any, Dict, List, Literal, Optional, Union
 import uuid
 
 import anyio
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from backend.app.dsp.loudness import compute_streaming_normalization_estimates
 from backend.app.dsp.media_probe import stream_upload_and_hash
 from backend.app.dsp.pipeline import analyze_audio_workspace
 
@@ -143,6 +144,17 @@ class ExternalAiInterpretationRequest(BaseModel):
     consent_state: ConsentState
 
 
+class StreamingEstimateRequest(BaseModel):
+    integrated_lufs: Optional[float] = Field(
+        None,
+        description="Measured ITU-R BS.1770-4 / EBU R128 integrated loudness in LUFS.",
+    )
+    true_peak_dbtp: Optional[float] = Field(
+        None,
+        description="Measured 4x oversampled inter-sample True Peak in dBTP.",
+    )
+
+
 class EphemeralAudioWorkspace:
     """
     Context manager creating an isolated temporary directory for audio DSP processing.
@@ -221,7 +233,7 @@ def get_capabilities():
             "analyze_dsp": "IMPLEMENTED",
             "dsp_core_measurements": "IMPLEMENTED",
             "ai_stem_separation": "PROHIBITED_BY_PRODUCT_RULE",
-            "streaming_normalization_estimates": "NOT_IMPLEMENTED_PHASE_3",
+            "streaming_normalization_estimates": "IMPLEMENTED",
             "original_stem_multitrack_analysis": "NOT_IMPLEMENTED_PHASE_4",
             "ai_educational_interpretation": "NOT_IMPLEMENTED_PHASE_5",
         },
@@ -238,9 +250,9 @@ def get_capabilities():
                 "disclosure": "Phase 2 Mathematical DSP engine active: Real-time loudness, true peak, crest factor, phase correlation, and Welch PSD.",
             },
             "streaming_normalization_estimates": {
-                "status": "NOT_IMPLEMENTED",
+                "status": "IMPLEMENTED",
                 "phase_target": 3,
-                "disclosure": "Streaming normalization predictions scheduled for Phase 3.",
+                "disclosure": "Rule 7: Deterministic streaming normalization estimates for Spotify Normal, Apple Music Sound Check, and YouTube.",
             },
             "reference_track_comparison": {
                 "status": "NOT_IMPLEMENTED",
@@ -587,16 +599,21 @@ def post_analyze_reference():
 
 
 @app.post("/api/v1/analyze/streaming")
-def post_analyze_streaming():
-    """Phase 3 boundary: Target platform normalization predictions."""
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail={
-            "error_code": "PHASE_BOUNDARY_NOT_IMPLEMENTED",
-            "target_phase": 3,
-            "message": "Streaming normalization predictions are scheduled for Phase 3.",
-        },
+def post_analyze_streaming(
+    payload: Optional[StreamingEstimateRequest] = Body(default=None),
+):
+    """
+    Phase 3: Deterministic streaming loudness normalization estimates (Rule 7).
+    Calculates estimated gain adjustments and limiter engagement warnings for
+    Spotify Normal (-14 LUFS), Apple Music Sound Check (-16 LUFS), and YouTube (-14 LUFS, no upward gain).
+    """
+    integrated_lufs = payload.integrated_lufs if payload is not None else None
+    true_peak_dbtp = payload.true_peak_dbtp if payload is not None else None
+    estimates = compute_streaming_normalization_estimates(
+        integrated_lufs=integrated_lufs,
+        true_peak_dbtp=true_peak_dbtp,
     )
+    return JSONResponse(content=estimates)
 
 
 @app.post("/api/v1/analyze/stems")

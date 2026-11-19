@@ -61,7 +61,7 @@ def test_capabilities_endpoint_reports_phase2_boundaries():
     caps = data["capabilities_status"]
     assert caps["dsp_core_measurements"] == "IMPLEMENTED"
     assert caps["ai_stem_separation"] == "PROHIBITED_BY_PRODUCT_RULE"
-    assert caps["streaming_normalization_estimates"] == "NOT_IMPLEMENTED_PHASE_3"
+    assert caps["streaming_normalization_estimates"] == "IMPLEMENTED"
     assert caps["original_stem_multitrack_analysis"] == "NOT_IMPLEMENTED_PHASE_4"
     assert caps["ai_educational_interpretation"] == "NOT_IMPLEMENTED_PHASE_5"
 
@@ -128,14 +128,33 @@ def test_phase2_dsp_endpoint_requires_multipart_and_consent():
     assert res.status_code == 422
 
 
-def test_phase3_reference_and_streaming_return_501():
+def test_phase3_reference_returns_501_and_streaming_returns_estimates():
     ref_res = client.post("/api/v1/analyze/reference")
     assert ref_res.status_code == 501
     assert ref_res.json()["detail"]["target_phase"] == 3
 
-    stream_res = client.post("/api/v1/analyze/streaming")
-    assert stream_res.status_code == 501
-    assert stream_res.json()["detail"]["target_phase"] == 3
+    stream_res = client.post(
+        "/api/v1/analyze/streaming",
+        json={"integrated_lufs": -18.5, "true_peak_dbtp": -2.0},
+    )
+    assert stream_res.status_code == 200
+    body = stream_res.json()
+    assert body["available"] is True
+    by_platform = {p["platform"]: p for p in body["platforms"]}
+    assert set(by_platform.keys()) == {
+        "Spotify Normal",
+        "Apple Music Sound Check",
+        "YouTube",
+    }
+    assert by_platform["Spotify Normal"]["target_lufs"] == -14.0
+    assert by_platform["Spotify Normal"]["estimated_gain_db"] == 4.5
+    assert by_platform["Spotify Normal"]["limiter_engaged_warning"] is True
+    assert by_platform["Apple Music Sound Check"]["target_lufs"] == -16.0
+    assert by_platform["Apple Music Sound Check"]["estimated_gain_db"] == 2.5
+    assert by_platform["Apple Music Sound Check"]["limiter_engaged_warning"] is True
+    assert by_platform["YouTube"]["target_lufs"] == -14.0
+    assert by_platform["YouTube"]["estimated_gain_db"] == 0.0
+    assert by_platform["YouTube"]["limiter_engaged_warning"] is False
 
 
 def test_rule1_rejects_ai_stem_separation_with_422():

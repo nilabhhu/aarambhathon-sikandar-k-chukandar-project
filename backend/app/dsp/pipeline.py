@@ -18,7 +18,10 @@ from fastapi import HTTPException, UploadFile, status
 import jsonschema
 
 from backend.app.dsp.diagnostics import evaluate_diagnostics
-from backend.app.dsp.loudness import measure_loudness_ebur128
+from backend.app.dsp.loudness import (
+    compute_streaming_normalization_estimates,
+    measure_loudness_ebur128,
+)
 from backend.app.dsp.media_probe import (
     decode_to_pcm_f32le,
     probe_media_file,
@@ -51,11 +54,12 @@ def sanitize_floats(obj: Any) -> Any:
 def sanitize_display_filename(name: str) -> str:
     """
     Sanitizes user-provided filename strictly for display metadata.
-    Strips path traversals, control characters, and null bytes.
+    Strips both POSIX and Windows path traversals, control characters, and null bytes.
     """
     if not name or not isinstance(name, str):
         return "audio_file.wav"
-    base = Path(name).name
+    normalized = name.replace("\\", "/")
+    base = Path(normalized).name
     sanitized = "".join(c for c in base if c.isprintable() and c not in '<>:"/\\|?*\0')
     sanitized = sanitized.strip(". ")
     if not sanitized:
@@ -351,9 +355,9 @@ def analyze_audio_workspace(
                 "disclosure": "Mathematical DSP engine executed via FFmpeg, pyloudnorm, and SciPy.",
             },
             "streaming_normalization_estimates": {
-                "status": "NOT_IMPLEMENTED",
+                "status": "IMPLEMENTED",
                 "phase_target": 3,
-                "disclosure": "Rule 7: Streaming normalization predictions scheduled for Phase 3.",
+                "disclosure": "Rule 7: Deterministic streaming normalization estimates for Spotify Normal, Apple Music Sound Check, and YouTube based on documented playback modes.",
             },
             "reference_track_comparison": {
                 "status": "NOT_IMPLEMENTED",
@@ -391,7 +395,10 @@ def analyze_audio_workspace(
         "issues": issues,
         "recommendations": recommendations,
         "extensions": {
-            "streaming_estimates": None,
+            "streaming_estimates": compute_streaming_normalization_estimates(
+                integrated_lufs=loudness_res.get("integrated_lufs"),
+                true_peak_dbtp=loudness_res.get("true_peak_dbtp"),
+            ),
             "reference_comparison": None,
             "stem_multitrack_report": None,
             "device_translation_profiles": None,
