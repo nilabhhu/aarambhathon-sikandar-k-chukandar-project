@@ -46,7 +46,7 @@ export function generatePhase1DemoReport(params: {
     created_at: '2026-11-10T18:00:00.000Z',
     is_demonstration_data: true,
     data_source_notice:
-      'DEMONSTRATION DATA — PHASE 1 CONTRACT FIXTURE: All numeric values below are deterministic schema fixtures for architectural verification. Real FFmpeg/libebur128, pyloudnorm, and SciPy DSP execution begins in Phase 2.',
+      'DEMONSTRATION DATA — CANONICAL CONTRACT FIXTURE: All numeric values below are deterministic schema fixtures for architectural verification.',
     input_context: {
       interface_mode: params.interface_mode,
       genre: params.genre,
@@ -100,7 +100,7 @@ export function generatePhase1DemoReport(params: {
         status: 'DEMO_FIXTURE_ONLY',
         phase_target: 2,
         disclosure:
-          'Phase 1 displays schema-validated demonstration fixtures. Phase 2 connects FFmpeg/libebur128, pyloudnorm, and SciPy.',
+          'Demonstration mode displays schema-validated fixtures. Live DSP connects FFmpeg/libebur128, pyloudnorm, and SciPy or local Web Audio.',
       },
       streaming_normalization_estimates: {
         status: 'NOT_IMPLEMENTED',

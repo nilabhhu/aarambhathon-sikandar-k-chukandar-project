@@ -1,8 +1,8 @@
 /**
- * Client API Service for MixLearn Studio (Phase 1 & Phase 2)
+ * Client API Service for MixLearn Studio (Phase 3 Studio Workbench)
  *
- * Uses relative URLs to route through the Vite proxy in development
- * and reverse proxies in production. Configurable via VITE_API_BASE_URL.
+ * Uses relative URLs for local dev routing and reverse proxies in production.
+ * Configurable via VITE_API_BASE_URL.
  */
 
 import {
@@ -186,8 +186,8 @@ export async function analyzeAudioWithDsp(
       }
 
       // If backend returned a structured JSON error response (e.g. 500 OOM, 403 Consent, 413, 422),
-      // respect the server's error response directly
-      if (hasCustomServerJson && res.status !== 405) {
+      // respect the server's error response directly (exclude 401/405 from non-FastAPI proxies/static hosts)
+      if (hasCustomServerJson && res.status !== 405 && res.status !== 401) {
         return {
           success: false,
           source: 'backend',
@@ -196,16 +196,19 @@ export async function analyzeAudioWithDsp(
         };
       }
 
-      // If Vercel static hosting returned 405 Method Not Allowed or 404 Not Found or unhandled gateway error,
+      // If hosting/proxy returned 401, 404, 405, 502, 503, 504, or unhandled 5xx without FastAPI JSON,
       // and a real audio file is present, decode with client Web Audio DSP engine!
       const rawFile = (formData.get('audio_file') || formData.get('file')) as File | null;
       if (
         rawFile &&
-        (res.status === 405 ||
-          res.status === 404 ||
-          res.status === 502 ||
-          res.status === 504 ||
-          (res.status >= 500 && !hasCustomServerJson))
+        (res.status === 401 ||
+          res.status === 405 ||
+          (!hasCustomServerJson &&
+            (res.status === 404 ||
+              res.status === 502 ||
+              res.status === 503 ||
+              res.status === 504 ||
+              res.status >= 500)))
       ) {
         return await tryClientWebAudio(
           `Backend returned HTTP ${res.status}. Falling back to Web Audio DSP.`,

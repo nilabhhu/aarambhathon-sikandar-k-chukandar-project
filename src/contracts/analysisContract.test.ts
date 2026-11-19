@@ -66,7 +66,7 @@ test('Rule 1: AI stem separation and pseudo-stem generation are strictly rejecte
   assert.ok(invalidAiStems.errors[0].includes('Rule 1 Violation'));
 });
 
-test('Phase 1 Demo Report passes full contract validation and enforces Rule 2 & Rule 8', () => {
+test('Demo Contract Report passes full contract validation and enforces Rule 2 & Rule 8', () => {
   const report = generatePhase1DemoReport({
     interface_mode: 'advanced',
     genre: 'indie_rock',
@@ -84,7 +84,7 @@ test('Phase 1 Demo Report passes full contract validation and enforces Rule 2 & 
   assert.ok(subjectiveIssues.length >= 2, 'Expected at least 2 subjective stylistic issues');
 });
 
-test('Phase 1 Boundary: Report with is_demonstration_data=false is rejected in Phase 1', () => {
+test('Demo Contract Boundary: Report with is_demonstration_data=false is rejected in demo mode', () => {
   const report = generatePhase1DemoReport({
     interface_mode: 'simple',
     genre: 'pop_vocal',

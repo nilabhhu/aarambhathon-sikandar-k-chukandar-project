@@ -177,7 +177,55 @@ function computeTruePeak(channelsData: Float32Array[], globalMaxSample: number):
 }
 
 /**
- * Computes Welch-style FFT energy in standard frequency bands.
+ * In-place iterative Radix-2 Cooley-Tukey FFT (O(N log N)).
+ */
+function fftRadix2(re: Float32Array, im: Float32Array): void {
+  const n = re.length;
+  // Bit-reversal permutation
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) {
+      j ^= bit;
+    }
+    j ^= bit;
+    if (i < j) {
+      const tr = re[i];
+      re[i] = re[j];
+      re[j] = tr;
+      const ti = im[i];
+      im[i] = im[j];
+      im[j] = ti;
+    }
+  }
+
+  for (let len = 2; len <= n; len <<= 1) {
+    const half = len >> 1;
+    const angle = (-2.0 * Math.PI) / len;
+    const wStepRe = Math.cos(angle);
+    const wStepIm = Math.sin(angle);
+    for (let i = 0; i < n; i += len) {
+      let wRe = 1.0;
+      let wIm = 0.0;
+      for (let j = 0; j < half; j++) {
+        const uRe = re[i + j];
+        const uIm = im[i + j];
+        const k = i + j + half;
+        const vRe = re[k] * wRe - im[k] * wIm;
+        const vIm = re[k] * wIm + im[k] * wRe;
+        re[i + j] = uRe + vRe;
+        im[i + j] = uIm + vIm;
+        re[k] = uRe - vRe;
+        im[k] = uIm - vIm;
+        const nextWRe = wRe * wStepRe - wIm * wStepIm;
+        wIm = wRe * wStepIm + wIm * wStepRe;
+        wRe = nextWRe;
+      }
+    }
+  }
+}
+
+/**
+ * Computes Welch-style FFT energy in standard frequency bands using a fast Radix-2 FFT.
  */
 function computeBandEnergies(
   channel0: Float32Array,
@@ -192,7 +240,7 @@ function computeBandEnergies(
   airUnavailableReason: string | null;
 } {
   const n = channel0.length;
-  const fftSize = Math.min(4096, Math.max(512, Math.pow(2, Math.floor(Math.log2(n)))));
+  const fftSize = Math.min(4096, Math.max(512, Math.pow(2, Math.floor(Math.log2(Math.max(512, n))))));
   const nyquist = sampleRate / 2.0;
 
   // Segment into blocks of fftSize with 50% overlap (Welch method)
@@ -212,6 +260,11 @@ function computeBandEnergies(
   for (let i = 0; i < fftSize; i++) {
     hann[i] = 0.5 * (1.0 - Math.cos((2.0 * Math.PI * i) / (fftSize - 1)));
   }
+
+  // Reusable FFT buffers
+  const re = new Float32Array(fftSize);
+  const im = new Float32Array(fftSize);
+  const invN2 = 1.0 / (fftSize * fftSize);
 
   // Pre-calculate band bin ranges
   const hzPerBin = sampleRate / fftSize;
@@ -234,26 +287,34 @@ function computeBandEnergies(
   const step = Math.max(1, Math.floor(numBlocks / 24));
   for (let blk = 0; blk < numBlocks; blk += step) {
     const start = blk * hopSize;
+    for (let i = 0; i < fftSize; i++) {
+      const idx = start + i;
+      re[i] = idx < n ? channel0[idx] * hann[i] : 0;
+      im[i] = 0;
+    }
+
+    fftRadix2(re, im);
+
     let bSub = 0, bBass = 0, bMud = 0, bMid = 0, bPres = 0, bAir = 0;
 
     for (let bin = bSub0; bin <= bSub1; bin++) {
-      bSub += calculateBinPower(channel0, start, fftSize, bin, hann);
+      bSub += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
     }
     for (let bin = bBass0; bin <= bBass1; bin++) {
-      bBass += calculateBinPower(channel0, start, fftSize, bin, hann);
+      bBass += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
     }
     for (let bin = bMud0; bin <= bMud1; bin++) {
-      bMud += calculateBinPower(channel0, start, fftSize, bin, hann);
+      bMud += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
     }
     for (let bin = bMid0; bin <= bMid1; bin++) {
-      bMid += calculateBinPower(channel0, start, fftSize, bin, hann);
+      bMid += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
     }
     for (let bin = bPres0; bin <= bPres1; bin++) {
-      bPres += calculateBinPower(channel0, start, fftSize, bin, hann);
+      bPres += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
     }
     if (nyquist >= 15000) {
       for (let bin = bAir0; bin <= bAir1; bin++) {
-        bAir += calculateBinPower(channel0, start, fftSize, bin, hann);
+        bAir += (re[bin] * re[bin] + im[bin] * im[bin]) * invN2;
       }
     }
 
@@ -282,24 +343,6 @@ function computeBandEnergies(
     air: airUnavailable ? null : toDb(airSum),
     airUnavailableReason: airUnavailable,
   };
-}
-
-function calculateBinPower(
-  samples: Float32Array,
-  start: number,
-  size: number,
-  bin: number,
-  window: Float32Array
-): number {
-  let real = 0;
-  let imag = 0;
-  const angle = (2.0 * Math.PI * bin) / size;
-  for (let i = 0; i < size; i++) {
-    const val = samples[start + i] * window[i];
-    real += val * Math.cos(angle * i);
-    imag -= val * Math.sin(angle * i);
-  }
-  return (real * real + imag * imag) / (size * size);
 }
 
 /**

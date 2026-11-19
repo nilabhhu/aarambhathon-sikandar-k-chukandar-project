@@ -472,7 +472,7 @@ export function validateAnalysisReport(
 }
 
 /**
- * Backward compatibility alias for Phase 1 tests / demo validator
+ * Backward compatibility alias for demo contract tests / validator
  */
 export function validatePhase1AnalysisReport(report: AnalysisReport): ContractValidationResult {
   return validateAnalysisReport(report, { expectedMode: 'demo' });

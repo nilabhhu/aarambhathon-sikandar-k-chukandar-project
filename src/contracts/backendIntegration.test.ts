@@ -98,7 +98,7 @@ test('Backend Integration: fetchAnalysisReport rejects invalid backend report (m
     mix_stage: 'unmastered_mix',
     consent_state: createDefaultConsentState(),
   });
-  // Violate Phase 1 contract boundary
+  // Violate demo contract boundary
   invalidReport.is_demonstration_data = false;
 
   const mockFetch = async () => {
